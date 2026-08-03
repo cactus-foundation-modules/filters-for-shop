@@ -53,6 +53,7 @@ export function FiltersScreen() {
   const [busy, setBusy] = useState(false)
   const [newGroupName, setNewGroupName] = useState('')
   const [newGroupControl, setNewGroupControl] = useState<FltControlType>('SWATCH')
+  const [newGroupKind, setNewGroupKind] = useState<'VALUES' | 'PRICE'>('VALUES')
   // Which filter's value picker is open. One at a time keeps the screen sane.
   const [openPicker, setOpenPicker] = useState<string | null>(null)
 
@@ -104,7 +105,13 @@ export function FiltersScreen() {
   async function addGroup() {
     const name = newGroupName.trim()
     if (!name) return
-    const ok = await send(`${BASE}/groups`, 'POST', { name, controlType: newGroupControl })
+    // Price-band groups read best as a tick list; the swatch controls have
+    // nothing to show for a band anyway.
+    const ok = await send(`${BASE}/groups`, 'POST', {
+      name,
+      controlType: newGroupKind === 'PRICE' ? 'CHECKBOX' : newGroupControl,
+      kind: newGroupKind,
+    })
     if (ok) setNewGroupName('')
   }
 
@@ -145,15 +152,27 @@ export function FiltersScreen() {
           />
           <select
             className="form-control"
-            style={{ flex: '0 0 12rem' }}
-            value={newGroupControl}
-            onChange={(e) => setNewGroupControl(e.target.value as FltControlType)}
-            aria-label="How shoppers pick from it"
+            style={{ flex: '0 0 11rem' }}
+            value={newGroupKind}
+            onChange={(e) => setNewGroupKind(e.target.value as 'VALUES' | 'PRICE')}
+            aria-label="What the group filters by"
           >
-            {(Object.keys(CONTROL_LABELS) as FltControlType[]).map((k) => (
-              <option key={k} value={k}>{CONTROL_LABELS[k]}</option>
-            ))}
+            <option value="VALUES">Product values</option>
+            <option value="PRICE">Price bands</option>
           </select>
+          {newGroupKind === 'VALUES' && (
+            <select
+              className="form-control"
+              style={{ flex: '0 0 12rem' }}
+              value={newGroupControl}
+              onChange={(e) => setNewGroupControl(e.target.value as FltControlType)}
+              aria-label="How shoppers pick from it"
+            >
+              {(Object.keys(CONTROL_LABELS) as FltControlType[]).map((k) => (
+                <option key={k} value={k}>{CONTROL_LABELS[k]}</option>
+              ))}
+            </select>
+          )}
           <button className="btn btn-primary" disabled={busy || !newGroupName.trim()} onClick={() => void addGroup()}>Add group</button>
         </div>
       </section>
@@ -344,6 +363,7 @@ function FilterRow({ group, filter, catalogue, busy, send, canMoveUp, canMoveDow
     await send(`${BASE}/filters/${filter.id}`, 'DELETE')
   }
 
+  const isPrice = group.kind === 'PRICE'
   const ruleSummary = filter.rules.length === 0
     ? 'matches nothing yet'
     : filter.rules.length === 1
@@ -370,23 +390,27 @@ function FilterRow({ group, filter, catalogue, busy, send, canMoveUp, canMoveDow
         ) : (
           <strong style={{ fontSize: '0.9375rem' }}>{filter.label}</strong>
         )}
-        <button
-          type="button"
-          onClick={() => setPickerOpen(!pickerOpen)}
-          style={{ border: 0, background: 'none', padding: 0, cursor: 'pointer', font: 'inherit', fontSize: '0.8125rem', color: filter.rules.length === 0 ? 'var(--color-error)' : 'var(--color-text-muted)', textDecoration: 'underline', textUnderlineOffset: 2 }}
-        >
-          {ruleSummary}
-        </button>
+        {!isPrice && (
+          <button
+            type="button"
+            onClick={() => setPickerOpen(!pickerOpen)}
+            style={{ border: 0, background: 'none', padding: 0, cursor: 'pointer', font: 'inherit', fontSize: '0.8125rem', color: filter.rules.length === 0 ? 'var(--color-error)' : 'var(--color-text-muted)', textDecoration: 'underline', textUnderlineOffset: 2 }}
+          >
+            {ruleSummary}
+          </button>
+        )}
         <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.35rem', alignItems: 'center' }}>
           <button className="btn btn-secondary btn-sm" disabled={busy || !canMoveUp} onClick={() => onMove(-1)} aria-label={`Move ${filter.label} up`}>↑</button>
           <button className="btn btn-secondary btn-sm" disabled={busy || !canMoveDown} onClick={() => onMove(1)} aria-label={`Move ${filter.label} down`}>↓</button>
           {!renaming && <button className="btn btn-secondary btn-sm" disabled={busy} onClick={() => setRenaming(true)}>Rename</button>}
-          <button className="btn btn-secondary btn-sm" disabled={busy} onClick={() => setPickerOpen(!pickerOpen)}>{pickerOpen ? 'Close values' : 'Choose values'}</button>
+          {!isPrice && <button className="btn btn-secondary btn-sm" disabled={busy} onClick={() => setPickerOpen(!pickerOpen)}>{pickerOpen ? 'Close values' : 'Choose values'}</button>}
           <button className="btn btn-secondary btn-sm" disabled={busy} onClick={() => void remove()}>Delete</button>
         </div>
       </div>
 
-      {group.controlType !== 'CHECKBOX' && group.controlType !== 'DROPDOWN' && (
+      {isPrice && <PriceBandEditor filter={filter} busy={busy} send={send} />}
+
+      {!isPrice && group.controlType !== 'CHECKBOX' && group.controlType !== 'DROPDOWN' && (
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginTop: '0.5rem', flexWrap: 'wrap' }}>
           {!wantsPicture && (
             <input
@@ -412,7 +436,7 @@ function FilterRow({ group, filter, catalogue, busy, send, canMoveUp, canMoveDow
         </div>
       )}
 
-      {pickerOpen && (
+      {pickerOpen && !isPrice && (
         <ValuePicker
           filter={filter}
           catalogue={catalogue}
@@ -422,6 +446,59 @@ function FilterRow({ group, filter, catalogue, busy, send, canMoveUp, canMoveDow
           swatchable={group.controlType === 'SWATCH' || group.controlType === 'IMAGE'}
         />
       )}
+    </div>
+  )
+}
+
+// Band bounds for a filter in a price group. Blank min = "under", blank max =
+// "and over"; the max is exclusive so neighbouring bands never both claim a
+// product sat exactly on the boundary.
+function PriceBandEditor({ filter, busy, send }: { filter: FltFilter; busy: boolean; send: Sender }) {
+  const [minDraft, setMinDraft] = useState(filter.priceMin === null ? '' : String(filter.priceMin))
+  const [maxDraft, setMaxDraft] = useState(filter.priceMax === null ? '' : String(filter.priceMax))
+
+  async function save() {
+    const parse = (raw: string): number | null | undefined => {
+      const trimmed = raw.trim()
+      if (trimmed === '') return null
+      const n = Number(trimmed)
+      return Number.isFinite(n) && n >= 0 ? n : undefined
+    }
+    const priceMin = parse(minDraft)
+    const priceMax = parse(maxDraft)
+    if (priceMin === undefined || priceMax === undefined) return
+    await send(`${BASE}/filters/${filter.id}`, 'PATCH', { priceMin, priceMax })
+  }
+
+  const unset = filter.priceMin === null && filter.priceMax === null
+
+  return (
+    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginTop: '0.5rem', flexWrap: 'wrap' }}>
+      <span style={{ fontSize: '0.8125rem', color: unset ? 'var(--color-error)' : 'var(--color-text-muted)' }}>
+        {unset ? 'no band set yet -' : 'band:'}
+      </span>
+      <input
+        className="form-control"
+        style={{ flex: '0 1 7rem', fontSize: '0.8125rem' }}
+        placeholder="From (blank = under)"
+        inputMode="decimal"
+        value={minDraft}
+        onChange={(e) => setMinDraft(e.target.value)}
+        aria-label={`${filter.label} band from`}
+        disabled={busy}
+      />
+      <span style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>up to (not including)</span>
+      <input
+        className="form-control"
+        style={{ flex: '0 1 7rem', fontSize: '0.8125rem' }}
+        placeholder="To (blank = no cap)"
+        inputMode="decimal"
+        value={maxDraft}
+        onChange={(e) => setMaxDraft(e.target.value)}
+        aria-label={`${filter.label} band up to`}
+        disabled={busy}
+      />
+      <button className="btn btn-secondary btn-sm" disabled={busy} onClick={() => void save()}>Save band</button>
     </div>
   )
 }
@@ -439,7 +516,7 @@ function ValuePicker({ filter, catalogue, busy, send, hasSwatch, swatchable }: {
 }) {
   const [query, setQuery] = useState(filter.rules.length === 0 ? filter.label : '')
   const [ticked, setTicked] = useState<Set<string>>(
-    () => new Set(filter.rules.map((r) => `${r.optionName}\u0000${r.valueLabel}`)),
+    () => new Set(filter.rules.map((r) => `${r.source}\u0000${r.optionName}\u0000${r.valueLabel}`)),
   )
   const [dirty, setDirty] = useState(false)
 
@@ -447,15 +524,16 @@ function ValuePicker({ filter, catalogue, busy, send, hasSwatch, swatchable }: {
   const shown = useMemo(() => {
     return catalogue
       .map((option) => ({
+        source: option.source,
         optionName: option.optionName,
         values: option.values.filter((v) => !q || v.label.toLowerCase().includes(q) || option.optionName.toLowerCase().includes(q)),
       }))
       .filter((option) => option.values.length > 0)
   }, [catalogue, q])
 
-  function toggle(optionName: string, valueLabel: string) {
+  function toggle(source: string, optionName: string, valueLabel: string) {
     setTicked((prev) => {
-      const key = `${optionName}\u0000${valueLabel}`
+      const key = `${source}\u0000${optionName}\u0000${valueLabel}`
       const next = new Set(prev)
       if (next.has(key)) next.delete(key)
       else next.add(key)
@@ -466,8 +544,8 @@ function ValuePicker({ filter, catalogue, busy, send, hasSwatch, swatchable }: {
 
   async function save() {
     const rules = [...ticked].map((key) => {
-      const [optionName, valueLabel] = key.split('\u0000')
-      return { optionName, valueLabel }
+      const [source, optionName, valueLabel] = key.split('\u0000')
+      return { source, optionName, valueLabel }
     })
     const ok = await send(`${BASE}/filters/${filter.id}/rules`, 'PUT', { rules })
     if (ok) {
@@ -476,7 +554,7 @@ function ValuePicker({ filter, catalogue, busy, send, hasSwatch, swatchable }: {
       // the catalogue already knows what Stevia Blue looks like.
       if (swatchable && !hasSwatch) {
         const donor = catalogue
-          .flatMap((o) => o.values.map((v) => ({ key: `${o.optionName}\u0000${v.label}`, swatch: v.swatch })))
+          .flatMap((o) => o.values.map((v) => ({ key: `${o.source}\u0000${o.optionName}\u0000${v.label}`, swatch: v.swatch })))
           .find((v) => ticked.has(v.key) && v.swatch)
         if (donor?.swatch) await send(`${BASE}/filters/${filter.id}`, 'PATCH', { swatch: donor.swatch })
       }
@@ -510,13 +588,13 @@ function ValuePicker({ filter, catalogue, busy, send, hasSwatch, swatchable }: {
       ) : (
         <div style={{ maxHeight: '20rem', overflowY: 'auto', display: 'grid', gap: '0.75rem' }}>
           {shown.map((option) => (
-            <div key={option.optionName}>
+            <div key={`${option.source}:${option.optionName}`}>
               <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.35rem' }}>
-                {option.optionName}
+                {option.source === 'ATTRIBUTE' ? `Spec: ${option.optionName}` : option.optionName}
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
                 {option.values.map((value) => {
-                  const key = `${option.optionName}\u0000${value.label}`
+                  const key = `${option.source}\u0000${option.optionName}\u0000${value.label}`
                   const on = ticked.has(key)
                   return (
                     <label
@@ -536,7 +614,7 @@ function ValuePicker({ filter, catalogue, busy, send, hasSwatch, swatchable }: {
                       <input
                         type="checkbox"
                         checked={on}
-                        onChange={() => toggle(option.optionName, value.label)}
+                        onChange={() => toggle(option.source, option.optionName, value.label)}
                         style={{ accentColor: 'var(--color-primary)' }}
                       />
                       {value.swatch && !isImageSwatch(value.swatch) && <SwatchDot swatch={value.swatch} size={12} />}

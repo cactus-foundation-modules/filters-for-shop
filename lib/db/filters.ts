@@ -1,6 +1,13 @@
 import { prisma } from '@/lib/db/prisma'
 import { Prisma } from '@prisma/client'
-import type { FltControlType, FltFilter, FltGroup, FltRule } from '@/modules/filters-for-shop/lib/types'
+import type { FltControlType, FltFilter, FltGroup, FltGroupKind, FltRule, FltRuleSource } from '@/modules/filters-for-shop/lib/types'
+
+// Numeric columns come back from $queryRaw as Prisma.Decimal - never trust the
+// JS value shape, coerce explicitly (same lesson as the backup serialiser).
+function toNumberOrNull(value: unknown): number | null {
+  if (value === null || value === undefined) return null
+  return Number(value)
+}
 
 // Groups, filters and rules in one shape. Everything is read in three flat
 // queries and stitched here - the admin screen and the storefront block both
@@ -8,13 +15,13 @@ import type { FltControlType, FltFilter, FltGroup, FltRule } from '@/modules/fil
 export async function listGroups(): Promise<FltGroup[]> {
   const [groupRows, filterRows, ruleRows] = await Promise.all([
     prisma.$queryRaw<Record<string, unknown>[]>`
-      SELECT "id", "name", "slug", "control_type", "position" FROM "flt_groups" ORDER BY "position", "created_at"
+      SELECT "id", "name", "slug", "control_type", "kind", "position" FROM "flt_groups" ORDER BY "position", "created_at"
     `,
     prisma.$queryRaw<Record<string, unknown>[]>`
-      SELECT "id", "group_id", "label", "slug", "swatch", "position" FROM "flt_filters" ORDER BY "position", "created_at"
+      SELECT "id", "group_id", "label", "slug", "swatch", "price_min", "price_max", "position" FROM "flt_filters" ORDER BY "position", "created_at"
     `,
     prisma.$queryRaw<Record<string, unknown>[]>`
-      SELECT "id", "filter_id", "option_name", "value_label" FROM "flt_filter_rules" ORDER BY "option_name", "value_label"
+      SELECT "id", "filter_id", "source", "option_name", "value_label" FROM "flt_filter_rules" ORDER BY "option_name", "value_label"
     `,
   ])
 
@@ -22,7 +29,12 @@ export async function listGroups(): Promise<FltGroup[]> {
   for (const row of ruleRows) {
     const filterId = row.filter_id as string
     const list = rulesByFilter.get(filterId) ?? []
-    list.push({ id: row.id as string, optionName: row.option_name as string, valueLabel: row.value_label as string })
+    list.push({
+      id: row.id as string,
+      source: row.source as FltRuleSource,
+      optionName: row.option_name as string,
+      valueLabel: row.value_label as string,
+    })
     rulesByFilter.set(filterId, list)
   }
 
@@ -37,6 +49,8 @@ export async function listGroups(): Promise<FltGroup[]> {
       slug: row.slug as string,
       swatch: (row.swatch as string | null) ?? null,
       position: row.position as number,
+      priceMin: toNumberOrNull(row.price_min),
+      priceMax: toNumberOrNull(row.price_max),
       rules: rulesByFilter.get(row.id as string) ?? [],
     })
     filtersByGroup.set(groupId, list)
@@ -47,6 +61,7 @@ export async function listGroups(): Promise<FltGroup[]> {
     name: row.name as string,
     slug: row.slug as string,
     controlType: row.control_type as FltControlType,
+    kind: (row.kind as FltGroupKind | null) ?? 'VALUES',
     position: row.position as number,
     filters: filtersByGroup.get(row.id as string) ?? [],
   }))
@@ -73,10 +88,10 @@ export async function ensureUniqueGroupSlug(base: string, excludeId = ''): Promi
   return slug
 }
 
-export async function createGroup(fields: { name: string; slug: string; controlType: FltControlType }): Promise<{ id: string }> {
+export async function createGroup(fields: { name: string; slug: string; controlType: FltControlType; kind?: FltGroupKind }): Promise<{ id: string }> {
   const rows = await prisma.$queryRaw<{ id: string }[]>`
-    INSERT INTO "flt_groups" ("name", "slug", "control_type", "position")
-    VALUES (${fields.name}, ${fields.slug}, ${fields.controlType},
+    INSERT INTO "flt_groups" ("name", "slug", "control_type", "kind", "position")
+    VALUES (${fields.name}, ${fields.slug}, ${fields.controlType}, ${fields.kind ?? 'VALUES'},
       (SELECT COALESCE(MAX("position"), -1) + 1 FROM "flt_groups"))
     RETURNING "id"
   `
@@ -142,13 +157,16 @@ export async function createFilter(fields: { groupId: string; label: string; slu
   return { id: row.id }
 }
 
-export async function updateFilter(id: string, fields: { label?: string; slug?: string; swatch?: string | null }): Promise<void> {
-  // swatch is tri-state: undefined leaves it alone, null clears it.
+export async function updateFilter(id: string, fields: { label?: string; slug?: string; swatch?: string | null; priceMin?: number | null; priceMax?: number | null }): Promise<void> {
+  // swatch and the price bounds are tri-state: undefined leaves them alone,
+  // null clears them.
   await prisma.$executeRaw`
     UPDATE "flt_filters" SET
       "label" = COALESCE(${fields.label ?? null}, "label"),
       "slug" = COALESCE(${fields.slug ?? null}, "slug"),
-      "swatch" = CASE WHEN ${fields.swatch !== undefined} THEN ${fields.swatch ?? null} ELSE "swatch" END
+      "swatch" = CASE WHEN ${fields.swatch !== undefined} THEN ${fields.swatch ?? null} ELSE "swatch" END,
+      "price_min" = CASE WHEN ${fields.priceMin !== undefined} THEN ${fields.priceMin ?? null}::numeric ELSE "price_min" END,
+      "price_max" = CASE WHEN ${fields.priceMax !== undefined} THEN ${fields.priceMax ?? null}::numeric ELSE "price_max" END
     WHERE "id" = ${id}
   `
 }
@@ -168,13 +186,13 @@ export async function reorderFilters(groupId: string, ids: string[]): Promise<vo
 
 // Replaces a filter's rule set wholesale. The admin picker always sends the
 // full ticked list, so a diff would only re-derive what it already has.
-export async function setFilterRules(filterId: string, rules: { optionName: string; valueLabel: string }[]): Promise<void> {
+export async function setFilterRules(filterId: string, rules: { source?: FltRuleSource; optionName: string; valueLabel: string }[]): Promise<void> {
   await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`DELETE FROM "flt_filter_rules" WHERE "filter_id" = ${filterId}`
     if (rules.length === 0) return
-    const values = rules.map((r) => Prisma.sql`(${filterId}, ${r.optionName}, ${r.valueLabel})`)
+    const values = rules.map((r) => Prisma.sql`(${filterId}, ${r.source ?? 'OPTION'}, ${r.optionName}, ${r.valueLabel})`)
     await tx.$executeRaw`
-      INSERT INTO "flt_filter_rules" ("filter_id", "option_name", "value_label")
+      INSERT INTO "flt_filter_rules" ("filter_id", "source", "option_name", "value_label")
       VALUES ${Prisma.join(values)}
       ON CONFLICT DO NOTHING
     `

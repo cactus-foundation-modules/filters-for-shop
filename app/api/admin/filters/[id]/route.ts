@@ -7,6 +7,10 @@ import { deleteFilter, ensureUniqueFilterSlug, getFilter, updateFilter } from '@
 const PatchBody = z.object({
   label: z.string().min(1).max(80).optional(),
   swatch: z.string().max(2048).nullable().optional(),
+  // Band bounds for filters in PRICE groups. Whole-catalogue money figures,
+  // same unit as product prices; null opens the end of the band.
+  priceMin: z.number().min(0).max(100_000_000).nullable().optional(),
+  priceMax: z.number().min(0).max(100_000_000).nullable().optional(),
 })
 
 export async function PATCH(request: Request, ctx: { params: Promise<Record<string, string>> }) {
@@ -28,6 +32,8 @@ export async function PATCH(request: Request, ctx: { params: Promise<Record<stri
     label,
     slug,
     swatch: parsed.data.swatch === undefined ? undefined : (parsed.data.swatch?.trim() || null),
+    priceMin: parsed.data.priceMin,
+    priceMax: parsed.data.priceMax,
   })
   return NextResponse.json({ ok: true })
 }

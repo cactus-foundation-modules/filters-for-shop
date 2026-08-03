@@ -11,6 +11,7 @@ const PostBody = z.object({
   // Rules can come along with creation, so "add Blue with these ticked" is one
   // request from the picker rather than a create-then-save dance.
   rules: z.array(z.object({
+    source: z.enum(['OPTION', 'ATTRIBUTE']).default('OPTION'),
     optionName: z.string().min(1).max(200),
     valueLabel: z.string().min(1).max(400),
   })).max(2000).optional(),

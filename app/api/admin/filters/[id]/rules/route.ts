@@ -5,6 +5,7 @@ import { getFilter, setFilterRules } from '@/modules/filters-for-shop/lib/db/fil
 
 const Body = z.object({
   rules: z.array(z.object({
+    source: z.enum(['OPTION', 'ATTRIBUTE']).default('OPTION'),
     optionName: z.string().min(1).max(200),
     valueLabel: z.string().min(1).max(400),
   })).max(2000),

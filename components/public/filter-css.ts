@@ -67,6 +67,7 @@ export function shopFilterCss({ tabletBp, mobileBp }: Breakpoints): string {
 }
 @media (min-width:calc(${tabletBp} + 1px)){
   .flt-panel .flt-drawer{display:contents}
+  .flt-pos-left .flt-panel{position:sticky;top:var(--flt-sticky-top,7rem);max-height:calc(100vh - var(--flt-sticky-top,7rem) - 1rem);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
 }
 @media (max-width:${mobileBp}){
   .flt-wrap{gap:20px}

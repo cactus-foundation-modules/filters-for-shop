@@ -15,6 +15,7 @@ import type { CardItem } from '@/modules/shop/lib/card-template'
 import { listGroups } from '@/modules/filters-for-shop/lib/db/filters'
 import { getSettings } from '@/modules/filters-for-shop/lib/db/settings'
 import { getProductFilterMatches } from '@/modules/filters-for-shop/lib/db/matching'
+import { priceInBand } from '@/modules/filters-for-shop/lib/types'
 import { FilterShell, type FltPublicGroup } from '@/modules/filters-for-shop/components/public/FilterShell'
 import { shopFilterCss } from '@/modules/filters-for-shop/components/public/filter-css'
 import { shopFilterGridPuckComponent, type ShopFilterGridProps } from './ShopFilterGrid'
@@ -118,6 +119,27 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
 
   const cards = await renderTaggedCards(template, items)
 
+  // PRICE groups are matched right here, not in SQL: the band compares against
+  // the same figure the card prints - the companion module's from-price when
+  // one exists, else shop's own price - so a filter can never disagree with
+  // the number the shopper is looking at. Works for variation-less products
+  // too, which the option matcher by design cannot see.
+  const priceFilters = groups
+    .filter((g) => g.kind === 'PRICE')
+    .flatMap((g) => g.filters.filter((f) => f.priceMin !== null || f.priceMax !== null))
+  if (priceFilters.length > 0) {
+    for (const { product, ctx } of items) {
+      const price = Number(ctx.fromPrice ?? ctx.prices.now)
+      if (!Number.isFinite(price)) continue
+      for (const f of priceFilters) {
+        if (!priceInBand(price, f.priceMin, f.priceMax)) continue
+        const list = matrix.get(product.id) ?? []
+        list.push(f.id)
+        matrix.set(product.id, list)
+      }
+    }
+  }
+
   // Drop filters nothing on this page can match, so a category page never
   // offers a tick that always returns nothing - and drop groups that end up
   // with no filters left, so there is never an empty heading.
@@ -129,7 +151,7 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
       slug: group.slug,
       controlType: group.controlType,
       filters: group.filters
-        .filter((f) => f.rules.length > 0)
+        .filter((f) => (group.kind === 'PRICE' ? f.priceMin !== null || f.priceMax !== null : f.rules.length > 0))
         .filter((f) => !settings.hideEmptyFilters || matchedFilterIds.has(f.id))
         .map((f) => ({ id: f.id, label: f.label, slug: f.slug, swatch: f.swatch })),
     }))
