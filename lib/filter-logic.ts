@@ -46,14 +46,27 @@ export function pickSwapFilter(
   selection: FltSelection,
   orderedGroups: { id: string; filterIds: string[] }[],
 ): string | null {
-  if (selection.size === 0) return null
+  return pickSwapFilters(productFilterIds, selection, orderedGroups)[0] ?? null
+}
+
+// Every ticked filter the product matches, in the same owner's order. The
+// card's carousel is constrained to exactly these filters' variation photos, so
+// two ticked colours mean two pictures the arrows flick between - and the first
+// is the one the single-swap pick above would have chosen.
+export function pickSwapFilters(
+  productFilterIds: string[],
+  selection: FltSelection,
+  orderedGroups: { id: string; filterIds: string[] }[],
+): string[] {
+  if (selection.size === 0) return []
   const matched = new Set(productFilterIds)
+  const out: string[] = []
   for (const group of orderedGroups) {
     const ticked = selection.get(group.id)
     if (!ticked || ticked.size === 0) continue
     for (const filterId of group.filterIds) {
-      if (ticked.has(filterId) && matched.has(filterId)) return filterId
+      if (ticked.has(filterId) && matched.has(filterId)) out.push(filterId)
     }
   }
-  return null
+  return out
 }

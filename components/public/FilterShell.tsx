@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { facetCount, matchesSelection, pickSwapFilter, type FltSelection } from '@/modules/filters-for-shop/lib/filter-logic'
+import { facetCount, matchesSelection, pickSwapFilters, type FltSelection } from '@/modules/filters-for-shop/lib/filter-logic'
 import { isImageSwatch, type FltControlType } from '@/modules/filters-for-shop/lib/types'
 import type { FltSwap } from '@/modules/filters-for-shop/lib/db/matching'
 
@@ -42,26 +42,45 @@ function readInitialSelection(groups: FltPublicGroup[]): FltSelection {
   return selected
 }
 
-// Re-dress one card for the ticked filter: swap the picture to the matching
-// variation's photo and point the link at that variation's own page (which
-// opens the parent product with those options already chosen). Originals are
-// parked in data attributes on first touch so unticking restores them exactly.
-function dressCard(el: HTMLElement, swap: FltSwap | null, swapImages: boolean, preselect: boolean) {
+// Re-dress one card for the ticked filters: show the matching variations'
+// photos and point the link at the first match's own page (which opens the
+// parent product with those options already chosen).
+//
+// Cards with shop's carousel island (`.shop-card-media`) get the polite version:
+// the allowed variation ids go into `data-shop-media-sources` on the card and a
+// `shop:card-media-sources` event tells the island to re-read - shop's contract
+// for exactly this. The island then shows the first ticked colour, lets the
+// arrows flick between the ticked ones only, and holds its hover-swap. Writing
+// the <img> src directly there would be undone by the island's next render
+// (hover did precisely that before this seam existed).
+//
+// Cards with a plain server-rendered <img> (single photo, no island) keep the
+// direct src swap. Originals are parked in data attributes on first touch so
+// unticking restores them exactly.
+function dressCard(el: HTMLElement, swapList: FltSwap[], swapImages: boolean, preselect: boolean) {
+  const primary = swapList[0] ?? null
   if (el instanceof HTMLAnchorElement && preselect) {
     if (el.dataset.fltHref === undefined) el.dataset.fltHref = el.getAttribute('href') ?? ''
-    el.setAttribute('href', swap ? swap.href : el.dataset.fltHref)
+    el.setAttribute('href', primary ? primary.href : el.dataset.fltHref)
   }
   if (!swapImages) return
+  if (el.querySelector('.shop-card-media')) {
+    const ids = swapList.map((s) => s.sourceId).filter(Boolean)
+    if (ids.length > 0) el.setAttribute('data-shop-media-sources', ids.join(' '))
+    else el.removeAttribute('data-shop-media-sources')
+    el.dispatchEvent(new CustomEvent('shop:card-media-sources'))
+    return
+  }
   const img = el.querySelector('img')
   if (!img) return
   if (img.dataset.fltSrc === undefined) {
     img.dataset.fltSrc = img.getAttribute('src') ?? ''
     img.dataset.fltSrcset = img.getAttribute('srcset') ?? ''
   }
-  if (swap?.image) {
+  if (primary?.image) {
     // srcset would outrank the swapped src, so it goes while the swap is on.
     img.removeAttribute('srcset')
-    img.setAttribute('src', swap.image)
+    img.setAttribute('src', primary.image)
   } else {
     img.setAttribute('src', img.dataset.fltSrc)
     if (img.dataset.fltSrcset) img.setAttribute('srcset', img.dataset.fltSrcset)
@@ -108,9 +127,11 @@ export function FilterShell({ groups, matrix, swaps, columns, position, showCoun
       el.style.display = ok ? '' : 'none'
       el.toggleAttribute('data-flt-hidden', !ok)
       if (ok) shown++
-      const swapFilterId = ok ? pickSwapFilter(matched, selected, orderedGroups) : null
-      const swap = swapFilterId ? (swaps[productId]?.[swapFilterId] ?? null) : null
-      dressCard(el, swap, swapImages, preselectOnClick)
+      const swapFilterIds = ok ? pickSwapFilters(matched, selected, orderedGroups) : []
+      const swapList = swapFilterIds
+        .map((id) => swaps[productId]?.[id])
+        .filter((s): s is FltSwap => s != null)
+      dressCard(el, swapList, swapImages, preselectOnClick)
     }
     setVisibleCount(shown)
 

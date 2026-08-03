@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { facetCount, matchesSelection, pickSwapFilter, type FltSelection } from './filter-logic'
+import { facetCount, matchesSelection, pickSwapFilter, pickSwapFilters, type FltSelection } from './filter-logic'
 
 const sel = (entries: [string, string[]][]): FltSelection => new Map(entries.map(([g, ids]) => [g, new Set(ids)]))
 
@@ -65,5 +65,32 @@ describe('pickSwapFilter', () => {
 
   it('returns null when the product matches none of the ticks', () => {
     expect(pickSwapFilter(['blue'], sel([['colour', ['green']]]), groups)).toBe(null)
+  })
+})
+
+describe('pickSwapFilters', () => {
+  const groups = [
+    { id: 'colour', filterIds: ['blue', 'green'] },
+    { id: 'finish', filterIds: ['oak'] },
+  ]
+
+  it('returns empty with nothing ticked', () => {
+    expect(pickSwapFilters(['blue'], sel([]), groups)).toEqual([])
+  })
+
+  it('returns every ticked match in the owner order, across groups', () => {
+    const selection = sel([['colour', ['green', 'blue']], ['finish', ['oak']]])
+    expect(pickSwapFilters(['green', 'blue', 'oak'], selection, groups)).toEqual(['blue', 'green', 'oak'])
+  })
+
+  it('drops ticks the product does not match', () => {
+    const selection = sel([['colour', ['green', 'blue']]])
+    expect(pickSwapFilters(['blue'], selection, groups)).toEqual(['blue'])
+    expect(pickSwapFilters(['oak'], selection, groups)).toEqual([])
+  })
+
+  it('agrees with pickSwapFilter on the first pick', () => {
+    const selection = sel([['colour', ['green']], ['finish', ['oak']]])
+    expect(pickSwapFilters(['green', 'oak'], selection, groups)[0]).toBe(pickSwapFilter(['green', 'oak'], selection, groups))
   })
 })

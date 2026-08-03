@@ -157,7 +157,7 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
     }))
     .filter((group) => group.filters.length > 0)
 
-  const swapsRecord: Record<string, Record<string, { image: string | null; href: string }>> = {}
+  const swapsRecord: Record<string, Record<string, { image: string | null; href: string; sourceId: string }>> = {}
   for (const [productId, perFilter] of swaps) swapsRecord[productId] = Object.fromEntries(perFilter)
 
   return (
