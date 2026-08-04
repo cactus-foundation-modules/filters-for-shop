@@ -177,8 +177,10 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
       })
       // Children nothing in the grid belongs to are dropped, same policy as
       // admin filters below: never offer a tick that always returns nothing.
+      // And one surviving child is no choice at all - the group only appears
+      // when there are at least two ways to cut the page.
       const offeredChildren = children.filter((c) => matchedChildIds.has(categoryFilterId(c.id)))
-      if (offeredChildren.length > 0) {
+      if (offeredChildren.length >= 2) {
         categoryGroup = {
           id: CATEGORY_GROUP_ID,
           name: CATEGORY_GROUP_NAME,
@@ -193,8 +195,9 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
   }
 
   // Drop filters nothing on this page can match, so a category page never
-  // offers a tick that always returns nothing - and drop groups that end up
-  // with no filters left, so there is never an empty heading.
+  // offers a tick that always returns nothing - and drop groups left with
+  // fewer than two filters: a heading with one tick under it is not a choice
+  // (on a page of sit-stand desks, "Height adjustable: Yes" filters nothing).
   const matchedFilterIds = new Set([...matrix.values()].flat())
   const adminGroups: FltPublicGroup[] = groups
     .map((group) => ({
@@ -207,7 +210,7 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
         .filter((f) => !settings.hideEmptyFilters || matchedFilterIds.has(f.id))
         .map((f) => ({ id: f.id, label: f.label, slug: f.slug, swatch: f.swatch })),
     }))
-    .filter((group) => group.filters.length > 0)
+    .filter((group) => group.filters.length >= 2)
   // Category leads the panel: it is the page's own structure, and the widest
   // cut a shopper can make before the finer admin-defined facets.
   const offered: FltPublicGroup[] = categoryGroup ? [categoryGroup, ...adminGroups] : adminGroups

@@ -32,7 +32,9 @@ themselves.
   counts against its own siblings), active-filter chips, clear all, collapsible
   groups with per-group selection badges, long tick lists folded behind
   "Show all", an empty state, and the selection mirrored into the URL so a
-  filtered view can be shared.
+  filtered view can be shared. A group that would surface fewer than two
+  choices on a page is dropped entirely - one tick under a heading is not a
+  choice (this covers the automatic Category group too).
 - **A real filter sheet on small screens.** At or below the site's tablet
   breakpoint the panel becomes an overlay sheet - sliding in from the right on
   tablets, up from the bottom edge on phones - opened by a floating "Filter"
