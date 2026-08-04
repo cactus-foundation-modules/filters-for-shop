@@ -59,9 +59,12 @@ function readInitialSelection(groups: FltPublicGroup[]): FltSelection {
 // unticking restores them exactly.
 function dressCard(el: HTMLElement, swapList: FltSwap[], swapImages: boolean, preselect: boolean) {
   const primary = swapList[0] ?? null
-  if (el instanceof HTMLAnchorElement && preselect) {
-    if (el.dataset.fltHref === undefined) el.dataset.fltHref = el.getAttribute('href') ?? ''
-    el.setAttribute('href', primary ? primary.href : el.dataset.fltHref)
+  // The card's navigation anchor: the wrapper itself on the old anchor-shaped
+  // card, the stretched `.shop-card-link` sibling on the current wrapper.
+  const link = el instanceof HTMLAnchorElement ? el : el.querySelector<HTMLAnchorElement>('a.shop-card-link')
+  if (link && preselect) {
+    if (link.dataset.fltHref === undefined) link.dataset.fltHref = link.getAttribute('href') ?? ''
+    link.setAttribute('href', primary ? primary.href : link.dataset.fltHref)
   }
   if (!swapImages) return
   if (el.querySelector('.shop-card-media')) {

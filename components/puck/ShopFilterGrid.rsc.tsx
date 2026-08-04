@@ -7,6 +7,7 @@ import { getShopConfigCached } from '@/modules/shop/lib/config'
 import { getShopBreakpoints } from '@/modules/shop/lib/breakpoints'
 import { resolveCardTemplate, buildCardContext } from '@/modules/shop/lib/card-template'
 import { resolveCardFromPrices } from '@/modules/shop/lib/card-price'
+import { resolveShopCardExtras } from '@/modules/shop/lib/card-media'
 import { injectShopProductCardEmbed } from '@/modules/shop/lib/inject-part-context'
 import { formatMoney } from '@/modules/shop/lib/money'
 import { shopCardCss } from '@/modules/shop/components/puck/parts/card-parts'
@@ -38,15 +39,18 @@ import { shopFilterGridPuckComponent, type ShopFilterGridProps } from './ShopFil
 async function renderTaggedCards(template: PuckData | null, items: CardItem[]) {
   const { getModuleLayoutPuckRscConfig } = await import('@/lib/puck/config.rsc')
   const config = getModuleLayoutPuckRscConfig('shopProductCard')
+  // Every block registered for the card layout type, exactly as shop's own
+  // renderCards passes - without it a companion module's card part renders its
+  // editor skeleton on the live grid.
+  const partTypes = config.categories.blocks.components
   return items.map(({ product, ctx }) => (
-    <a
-      key={product.id}
-      href={`/shop/products/${product.slug}`}
-      className="shop-card"
-      data-flt-product={product.id}
-    >
+    // Same wrapper shape as shop's renderCards: a div with a stretched link
+    // sibling, so the carousel arrows and any overlay controls are real buttons
+    // above the link rather than interactive content nested in an <a>.
+    <div key={product.id} className="shop-card" data-flt-product={product.id}>
+      <a className="shop-card-link" href={`/shop/products/${product.slug}`} aria-label={product.name} />
       {template ? (
-        <Render config={config as any} data={injectShopProductCardEmbed(template, ctx) as Data} />
+        <Render config={config as any} data={injectShopProductCardEmbed(template, ctx, partTypes) as Data} />
       ) : (
         <>
           <div className="shop-card-img">
@@ -68,7 +72,7 @@ async function renderTaggedCards(template: PuckData | null, items: CardItem[]) {
           </div>
         </>
       )}
-    </a>
+    </div>
   ))
 }
 
@@ -104,16 +108,21 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
   }
 
   const productIds = products.map((p) => p.id)
-  const [{ matrix, swaps }, fromPrices] = await Promise.all([
+  // Card extras resolved exactly as shop's own grids do (ShopProductGrid.rsc):
+  // without them the cards here carry no contributed variation photos, so the
+  // carousel island never mounts with anything the filter's sourceId constraint
+  // could match - the very photos the swap borrows.
+  const [{ matrix, swaps }, fromPrices, cardExtras] = await Promise.all([
     getProductFilterMatches(productIds, groups),
     resolveCardFromPrices(productIds),
+    resolveShopCardExtras(productIds),
   ])
 
   const tagById = new Map(tags.map((t) => [t.id, t.slug]))
   const items: CardItem[] = await Promise.all(
     products.map(async (product) => {
       const [media, tagIds] = await Promise.all([getProductMedia(product.id), getProductTagIds(product.id)])
-      return { product, ctx: buildCardContext(product, media, tagById, tagIds, config.currencySymbol, config, fromPrices.get(product.id) ?? null) }
+      return { product, ctx: buildCardContext(product, media, tagById, tagIds, config.currencySymbol, config, fromPrices.get(product.id) ?? null, cardExtras.get(product.id)) }
     }),
   )
 
