@@ -30,8 +30,16 @@ themselves.
   deep link - no shop changes needed).
 - **A proper filter panel.** Live product counts (facet-style: a tick never
   counts against its own siblings), active-filter chips, clear all, collapsible
-  groups, a mobile filter drawer, an empty state, and the selection mirrored
-  into the URL so a filtered view can be shared.
+  groups with per-group selection badges, long tick lists folded behind
+  "Show all", an empty state, and the selection mirrored into the URL so a
+  filtered view can be shared.
+- **A real filter sheet on small screens.** At or below the site's tablet
+  breakpoint the panel becomes an overlay sheet - sliding in from the right on
+  tablets, up from the bottom edge on phones - opened by a floating "Filter"
+  pill that stays reachable however far the grid is scrolled. The sheet has a
+  sticky "Show N products" apply footer with a clear-all beside it, a scrim,
+  page scroll locking, Escape/scrim-tap to close, focus trapping and dialog
+  semantics; motion respects `prefers-reduced-motion`.
 
 ## Where things live
 

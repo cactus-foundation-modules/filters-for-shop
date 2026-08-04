@@ -227,6 +227,7 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
         showCounts={props.showCounts !== 'no'}
         swapImages={settings.swapCardImages}
         preselectOnClick={settings.preselectOnClick}
+        tabletBp={bp.tabletBp}
       >
         {cards}
       </FilterShell>

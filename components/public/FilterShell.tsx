@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { facetCount, matchesSelection, pickSwapFilters, type FltSelection } from '@/modules/filters-for-shop/lib/filter-logic'
 import { isImageSwatch, type FltControlType } from '@/modules/filters-for-shop/lib/types'
 import type { FltSwap } from '@/modules/filters-for-shop/lib/db/matching'
@@ -22,11 +22,23 @@ export type FilterShellProps = {
   showCounts: boolean
   swapImages: boolean
   preselectOnClick: boolean
+  // The site's tablet breakpoint (a CSS length), so the shell knows when the
+  // panel is the overlay sheet rather than the always-visible sidebar - the
+  // sheet needs dialog semantics, a scroll lock and focus handling that would
+  // be wrong on desktop.
+  tabletBp: string
   // Server-rendered cards, stamped with the shop's own Product Card layout and
   // tagged data-flt-product. They are shown, hidden and re-dressed in place -
   // never re-rendered - so the card design stays the shop's own.
   children: React.ReactNode
 }
+
+// A tick list longer than this collapses behind "Show all" - long enough that
+// most groups never fold, short enough that a 40-entry group doesn't bury the
+// ones below it. Lists only just over the line stay unfolded: hiding two
+// entries behind a button is more taps than it saves.
+const TICK_FOLD_LIMIT = 8
+const TICK_FOLD_SLACK = 2
 
 function readInitialSelection(groups: FltPublicGroup[]): FltSelection {
   const selected: FltSelection = new Map()
@@ -91,12 +103,23 @@ function dressCard(el: HTMLElement, swapList: FltSwap[], swapImages: boolean, pr
   }
 }
 
-export function FilterShell({ groups, matrix, swaps, columns, position, showCounts, swapImages, preselectOnClick, children }: FilterShellProps) {
+export function FilterShell({ groups, matrix, swaps, columns, position, showCounts, swapImages, preselectOnClick, tabletBp, children }: FilterShellProps) {
   const gridRef = useRef<HTMLDivElement>(null)
+  const resultsRef = useRef<HTMLDivElement>(null)
+  const drawerRef = useRef<HTMLDivElement>(null)
+  const fabRef = useRef<HTMLButtonElement>(null)
+  const closeRef = useRef<HTMLButtonElement>(null)
+  const scrollToResultsRef = useRef(false)
   const [selected, setSelected] = useState<FltSelection>(new Map())
   const [visibleCount, setVisibleCount] = useState<number | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [closedGroups, setClosedGroups] = useState<Set<string>>(new Set())
+  const [unfoldedGroups, setUnfoldedGroups] = useState<Set<string>>(new Set())
+  // Whether the viewport is at or below the tablet breakpoint, i.e. the panel
+  // renders as the overlay sheet. Dialog semantics and the scroll lock hang off
+  // this, never off CSS alone. False on the server and first paint - the sheet
+  // is closed then anyway.
+  const [isSheet, setIsSheet] = useState(false)
 
   // Read the URL only after mount: the cards are server-rendered and must not
   // depend on the query string, or the markup would mismatch on hydration.
@@ -104,6 +127,60 @@ export function FilterShell({ groups, matrix, swaps, columns, position, showCoun
     // eslint-disable-next-line react-hooks/set-state-in-effect -- URL is only readable post-mount; seeding during render would mismatch the server-rendered cards
     setSelected(readInitialSelection(groups))
   }, [groups])
+
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${tabletBp})`)
+    const apply = () => {
+      setIsSheet(mq.matches)
+      if (!mq.matches) setDrawerOpen(false)
+    }
+    apply()
+    mq.addEventListener('change', apply)
+    return () => mq.removeEventListener('change', apply)
+  }, [tabletBp])
+
+  // While the sheet is open: lock the page scroll behind it, close on Escape,
+  // and hand focus to the sheet - returning both on close. The lock pins the
+  // body with position:fixed at its current offset rather than overflow:hidden,
+  // which would clamp the scroll position to the top and lose the shopper's
+  // place in the grid. On close the place is put back - unless the apply
+  // button asked to land on the results instead.
+  useEffect(() => {
+    if (!drawerOpen || !isSheet) return
+    const fab = fabRef.current
+    const resultsEl = resultsRef.current
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const scrollY = window.scrollY
+    const { position, top, left, right, width } = document.body.style
+    document.body.style.position = 'fixed'
+    document.body.style.top = `-${scrollY}px`
+    document.body.style.left = '0'
+    document.body.style.right = '0'
+    document.body.style.width = '100%'
+    closeRef.current?.focus()
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setDrawerOpen(false)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.body.style.position = position
+      document.body.style.top = top
+      document.body.style.left = left
+      document.body.style.right = right
+      document.body.style.width = width
+      // Instant, never smooth: the site's scroll-behavior would animate these,
+      // and a queued smooth scroll is silently cancelled by the very layout
+      // work this cleanup causes - the page would stay at the top instead.
+      window.scrollTo({ top: scrollY, left: 0, behavior: 'instant' })
+      document.removeEventListener('keydown', onKey)
+      if (scrollToResultsRef.current) {
+        scrollToResultsRef.current = false
+        if (resultsEl && resultsEl.getBoundingClientRect().top < 0) resultsEl.scrollIntoView({ block: 'start', behavior: 'instant' })
+      }
+      if (previous) previous.focus()
+      else fab?.focus()
+    }
+  }, [drawerOpen, isSheet])
 
   const matrixEntries = useMemo(() => Object.entries(matrix), [matrix])
   const orderedGroups = useMemo(
@@ -181,6 +258,42 @@ export function FilterShell({ groups, matrix, swaps, columns, position, showCoun
     })
   }
 
+  function toggleUnfolded(groupId: string) {
+    setUnfoldedGroups((prev) => {
+      const next = new Set(prev)
+      if (next.has(groupId)) next.delete(groupId)
+      else next.add(groupId)
+      return next
+    })
+  }
+
+  // Close the sheet and bring the results back on screen: the shopper has been
+  // reading the sheet, and the grid they just filtered may be scrolled away.
+  // The scroll itself happens in the lock effect's cleanup, after the body is
+  // unpinned - scrolling here would race the restore and lose.
+  const applyAndClose = useCallback(() => {
+    scrollToResultsRef.current = true
+    setDrawerOpen(false)
+  }, [])
+
+  // Keep Tab inside the open sheet - a light trap, matching dialog behaviour.
+  const trapTab = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== 'Tab' || !drawerRef.current) return
+    const focusables = drawerRef.current.querySelectorAll<HTMLElement>(
+      'button, input, select, [tabindex]:not([tabindex="-1"])',
+    )
+    const first = focusables[0]
+    const last = focusables[focusables.length - 1]
+    if (!first || !last) return
+    if (e.shiftKey && document.activeElement === first) {
+      e.preventDefault()
+      last.focus()
+    } else if (!e.shiftKey && document.activeElement === last) {
+      e.preventDefault()
+      first.focus()
+    }
+  }, [])
+
   const activeCount = [...selected.values()].reduce((n, s) => n + s.size, 0)
   const totalCount = matrixEntries.length || null
   const shownGroups = groups.filter((g) => g.filters.length > 0)
@@ -201,7 +314,13 @@ export function FilterShell({ groups, matrix, swaps, columns, position, showCoun
           const found = filterById.get(filterId)
           if (!found) return null
           return (
-            <button key={filterId} type="button" className="flt-chip" onClick={() => toggle(groupId, filterId)}>
+            <button
+              key={filterId}
+              type="button"
+              className="flt-chip"
+              aria-label={`Remove filter ${found.group.name}: ${found.filter.label}`}
+              onClick={() => toggle(groupId, filterId)}
+            >
               {found.filter.label}
               <span className="flt-chip-x" aria-hidden>×</span>
             </button>
@@ -212,9 +331,11 @@ export function FilterShell({ groups, matrix, swaps, columns, position, showCoun
     </div>
   )
 
+  const shownProducts = visibleCount ?? totalCount ?? 0
+
   return (
     <div className={`flt-wrap flt-pos-${position}`}>
-      <aside className={`flt-panel${drawerOpen ? ' is-open' : ''}`} aria-label="Filter products">
+      <aside className="flt-panel" aria-label="Filter products">
         <div className="flt-head">
           <h2 className="flt-title">Filter</h2>
           {activeCount > 0 && (
@@ -223,127 +344,188 @@ export function FilterShell({ groups, matrix, swaps, columns, position, showCoun
             </button>
           )}
         </div>
+
+        {/* Overlay-mode entry point: a floating pill, reachable however far the
+            grid has been scrolled - the sheet itself carries the panel then. */}
         <button
           type="button"
-          className="flt-toggle"
+          className="flt-fab"
+          ref={fabRef}
           aria-expanded={drawerOpen}
-          onClick={() => setDrawerOpen((v) => !v)}
+          onClick={() => setDrawerOpen(true)}
         >
-          {drawerOpen ? 'Hide filters' : 'Show filters'}
-          {activeCount > 0 && <span className="flt-toggle-badge">{activeCount}</span>}
+          <svg className="flt-fab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z" />
+          </svg>
+          Filter
+          {activeCount > 0 && <span className="flt-fab-badge">{activeCount}</span>}
         </button>
 
-        <div className="flt-drawer">
-          {shownGroups.map((group) => {
-            const closed = closedGroups.has(group.id)
-            const bodyId = `flt-body-${group.id}`
-            return (
-              <fieldset key={group.id} className={`flt-group${closed ? ' is-closed' : ''}`}>
-                <legend style={{ display: 'contents' }}>
-                  <button
-                    type="button"
-                    className="flt-group-head"
-                    aria-expanded={!closed}
-                    aria-controls={bodyId}
-                    onClick={() => toggleGroupOpen(group.id)}
-                  >
-                    {group.name}
-                    <span className="flt-chevron" aria-hidden />
-                  </button>
-                </legend>
-                <div className="flt-group-body" id={bodyId}>
-                  {group.controlType === 'DROPDOWN' ? (
-                    <select
-                      className="flt-select"
-                      value={[...(selected.get(group.id) ?? [])][0] ?? ''}
-                      onChange={(e) => selectOnly(group.id, e.target.value)}
-                      aria-label={group.name}
+        <div
+          className={`flt-scrim${drawerOpen ? ' is-open' : ''}`}
+          onClick={() => setDrawerOpen(false)}
+          aria-hidden
+        />
+
+        <div
+          className={`flt-drawer${drawerOpen ? ' is-open' : ''}`}
+          ref={drawerRef}
+          role={isSheet ? 'dialog' : undefined}
+          aria-modal={isSheet && drawerOpen ? true : undefined}
+          aria-label={isSheet ? 'Filter products' : undefined}
+          onKeyDown={isSheet && drawerOpen ? trapTab : undefined}
+        >
+          <div className="flt-sheet-head">
+            <h2 className="flt-title">Filter</h2>
+            <button type="button" className="flt-sheet-close" ref={closeRef} onClick={() => setDrawerOpen(false)} aria-label="Close filters">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+                <path d="M18 6 6 18M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          <div className="flt-sheet-body">
+            {shownGroups.map((group) => {
+              const closed = closedGroups.has(group.id)
+              const bodyId = `flt-body-${group.id}`
+              const pickedInGroup = selected.get(group.id)?.size ?? 0
+              const foldable = group.controlType === 'CHECKBOX' && group.filters.length > TICK_FOLD_LIMIT + TICK_FOLD_SLACK
+              const unfolded = !foldable || unfoldedGroups.has(group.id)
+              // A folded list still shows every ticked entry, wherever it sits
+              // in the owner's order - a tick must never vanish behind the fold.
+              const tickFilters = unfolded
+                ? group.filters
+                : group.filters.filter((f, i) => i < TICK_FOLD_LIMIT || (selected.get(group.id)?.has(f.id) ?? false))
+              return (
+                <fieldset key={group.id} className={`flt-group${closed ? ' is-closed' : ''}`}>
+                  <legend style={{ display: 'contents' }}>
+                    <button
+                      type="button"
+                      className="flt-group-head"
+                      aria-expanded={!closed}
+                      aria-controls={bodyId}
+                      onClick={() => toggleGroupOpen(group.id)}
                     >
-                      <option value="">Any</option>
-                      {group.filters.map((filter) => (
-                        <option key={filter.id} value={filter.id}>
-                          {filter.label}{showCounts ? ` (${count(filter.id, group.id)})` : ''}
-                        </option>
-                      ))}
-                    </select>
-                  ) : group.controlType === 'IMAGE' ? (
-                    <div className="flt-images">
-                      {group.filters.map((filter) => {
-                        const on = selected.get(group.id)?.has(filter.id) ?? false
-                        const n = count(filter.id, group.id)
-                        const picture = filter.swatch && isImageSwatch(filter.swatch) ? filter.swatch : null
-                        return (
-                          <button
-                            key={filter.id}
-                            type="button"
-                            className={`flt-image${on ? ' is-on' : ''}${n === 0 && !on ? ' is-dead' : ''}`}
-                            aria-pressed={on}
-                            title={showCounts ? `${filter.label} (${n})` : filter.label}
-                            onClick={() => toggle(group.id, filter.id)}
-                          >
-                            {picture ? (
-                              // eslint-disable-next-line @next/next/no-img-element -- media library URLs are arbitrary remote hosts, not a configured next/image loader
-                              <img className="flt-image-pic" src={picture} alt="" loading="lazy" />
-                            ) : (
-                              <span className="flt-image-pic flt-image-blank" aria-hidden />
-                            )}
-                            <span className="flt-image-label">{filter.label}</span>
+                      <span className="flt-group-name">
+                        {group.name}
+                        {pickedInGroup > 0 && <span className="flt-group-badge">{pickedInGroup}</span>}
+                      </span>
+                      <span className="flt-chevron" aria-hidden />
+                    </button>
+                  </legend>
+                  <div className="flt-group-body" id={bodyId}>
+                    {group.controlType === 'DROPDOWN' ? (
+                      <select
+                        className="flt-select"
+                        value={[...(selected.get(group.id) ?? [])][0] ?? ''}
+                        onChange={(e) => selectOnly(group.id, e.target.value)}
+                        aria-label={group.name}
+                      >
+                        <option value="">Any</option>
+                        {group.filters.map((filter) => (
+                          <option key={filter.id} value={filter.id}>
+                            {filter.label}{showCounts ? ` (${count(filter.id, group.id)})` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    ) : group.controlType === 'IMAGE' ? (
+                      <div className="flt-images">
+                        {group.filters.map((filter) => {
+                          const on = selected.get(group.id)?.has(filter.id) ?? false
+                          const n = count(filter.id, group.id)
+                          const picture = filter.swatch && isImageSwatch(filter.swatch) ? filter.swatch : null
+                          return (
+                            <button
+                              key={filter.id}
+                              type="button"
+                              className={`flt-image${on ? ' is-on' : ''}${n === 0 && !on ? ' is-dead' : ''}`}
+                              aria-pressed={on}
+                              title={showCounts ? `${filter.label} (${n})` : filter.label}
+                              onClick={() => toggle(group.id, filter.id)}
+                            >
+                              {picture ? (
+                                // eslint-disable-next-line @next/next/no-img-element -- media library URLs are arbitrary remote hosts, not a configured next/image loader
+                                <img className="flt-image-pic" src={picture} alt="" loading="lazy" />
+                              ) : (
+                                <span className="flt-image-pic flt-image-blank" aria-hidden />
+                              )}
+                              <span className="flt-image-label">{filter.label}</span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    ) : group.controlType === 'SWATCH' ? (
+                      <div className="flt-swatches">
+                        {group.filters.map((filter) => {
+                          const on = selected.get(group.id)?.has(filter.id) ?? false
+                          const n = count(filter.id, group.id)
+                          const swatch = filter.swatch
+                          const dotStyle = swatch
+                            ? isImageSwatch(swatch)
+                              ? { backgroundImage: `url("${swatch}")` }
+                              : { background: swatch }
+                            : { background: 'var(--color-bg-subtle)' }
+                          return (
+                            <button
+                              key={filter.id}
+                              type="button"
+                              className={`flt-swatch${on ? ' is-on' : ''}${n === 0 && !on ? ' is-dead' : ''}`}
+                              aria-pressed={on}
+                              title={showCounts ? `${filter.label} (${n})` : filter.label}
+                              onClick={() => toggle(group.id, filter.id)}
+                            >
+                              <span className="flt-swatch-dot" style={dotStyle} aria-hidden />
+                              <span className="flt-swatch-label">{filter.label}</span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    ) : (
+                      <div className="flt-ticks">
+                        {tickFilters.map((filter) => {
+                          const n = count(filter.id, group.id)
+                          const on = selected.get(group.id)?.has(filter.id) ?? false
+                          return (
+                            <label key={filter.id} className={`flt-tick${n === 0 && !on ? ' is-dead' : ''}`}>
+                              <input type="checkbox" checked={on} onChange={() => toggle(group.id, filter.id)} />
+                              <span>{filter.label}</span>
+                              {showCounts && <span className="flt-count">{n}</span>}
+                            </label>
+                          )
+                        })}
+                        {foldable && (
+                          <button type="button" className="flt-fold" aria-expanded={unfolded} onClick={() => toggleUnfolded(group.id)}>
+                            {unfolded ? 'Show fewer' : `Show all (${group.filters.length})`}
                           </button>
-                        )
-                      })}
-                    </div>
-                  ) : group.controlType === 'SWATCH' ? (
-                    <div className="flt-swatches">
-                      {group.filters.map((filter) => {
-                        const on = selected.get(group.id)?.has(filter.id) ?? false
-                        const n = count(filter.id, group.id)
-                        const swatch = filter.swatch
-                        const dotStyle = swatch
-                          ? isImageSwatch(swatch)
-                            ? { backgroundImage: `url("${swatch}")` }
-                            : { background: swatch }
-                          : { background: 'var(--color-bg-subtle)' }
-                        return (
-                          <button
-                            key={filter.id}
-                            type="button"
-                            className={`flt-swatch${on ? ' is-on' : ''}${n === 0 && !on ? ' is-dead' : ''}`}
-                            aria-pressed={on}
-                            title={showCounts ? `${filter.label} (${n})` : filter.label}
-                            onClick={() => toggle(group.id, filter.id)}
-                          >
-                            <span className="flt-swatch-dot" style={dotStyle} aria-hidden />
-                            <span className="flt-swatch-label">{filter.label}</span>
-                          </button>
-                        )
-                      })}
-                    </div>
-                  ) : (
-                    <div className="flt-ticks">
-                      {group.filters.map((filter) => {
-                        const n = count(filter.id, group.id)
-                        const on = selected.get(group.id)?.has(filter.id) ?? false
-                        return (
-                          <label key={filter.id} className={`flt-tick${n === 0 && !on ? ' is-dead' : ''}`}>
-                            <input type="checkbox" checked={on} onChange={() => toggle(group.id, filter.id)} />
-                            <span>{filter.label}</span>
-                            {showCounts && <span className="flt-count">{n}</span>}
-                          </label>
-                        )
-                      })}
-                    </div>
-                  )}
-                </div>
-              </fieldset>
-            )
-          })}
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </fieldset>
+              )
+            })}
+          </div>
+
+          <div className="flt-sheet-foot">
+            <button
+              type="button"
+              className="flt-foot-clear"
+              onClick={() => setSelected(new Map())}
+              disabled={activeCount === 0}
+            >
+              Clear all
+            </button>
+            <button type="button" className="flt-foot-apply" onClick={applyAndClose}>
+              {shownProducts === 0 ? 'Nothing matches' : `Show ${shownProducts} ${shownProducts === 1 ? 'product' : 'products'}`}
+            </button>
+          </div>
         </div>
       </aside>
 
-      <div className="flt-results">
+      <div className="flt-results" ref={resultsRef}>
         {chips}
         {activeCount > 0 && visibleCount !== null && totalCount !== null && (
-          <p className="flt-showing">Showing {visibleCount} of {totalCount}</p>
+          <p className="flt-showing" role="status">Showing {visibleCount} of {totalCount}</p>
         )}
         {grid}
         {visibleCount === 0 && (
