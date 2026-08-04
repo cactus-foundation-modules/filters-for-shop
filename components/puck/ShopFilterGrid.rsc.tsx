@@ -2,7 +2,7 @@ import { connection } from 'next/server'
 import { Render } from '@puckeditor/core/rsc'
 import type { Data } from '@puckeditor/core'
 import { listProducts, getProductMedia, getProductTagIds } from '@/modules/shop/lib/db'
-import { listTags, resolveCategoryProductFilter } from '@/modules/shop/lib/db/catalogue'
+import { listTags, resolveCategoryProductFilter, listCategories, getProductCategoryIds } from '@/modules/shop/lib/db'
 import { getShopConfigCached } from '@/modules/shop/lib/config'
 import { getShopBreakpoints } from '@/modules/shop/lib/breakpoints'
 import { resolveCardTemplate, buildCardContext } from '@/modules/shop/lib/card-template'
@@ -17,6 +17,7 @@ import { listGroups } from '@/modules/filters-for-shop/lib/db/filters'
 import { getSettings } from '@/modules/filters-for-shop/lib/db/settings'
 import { getProductFilterMatches } from '@/modules/filters-for-shop/lib/db/matching'
 import { priceInBand } from '@/modules/filters-for-shop/lib/types'
+import { CATEGORY_GROUP_ID, CATEGORY_GROUP_SLUG, CATEGORY_GROUP_NAME, buildBranchIndex, productBranchFilterIds, categoryFilterId } from '@/modules/filters-for-shop/lib/category-filter'
 import { FilterShell, type FltPublicGroup } from '@/modules/filters-for-shop/components/public/FilterShell'
 import { shopFilterCss } from '@/modules/filters-for-shop/components/public/filter-css'
 import { shopFilterGridPuckComponent, type ShopFilterGridProps } from './ShopFilterGrid'
@@ -108,14 +109,21 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
   }
 
   const productIds = products.map((p) => p.id)
+
+  // The synthetic Category group: this page's sub-categories offered as a
+  // filter, built from the tree rather than any admin-defined rules. Only on
+  // category pages, and only when the category actually has children.
+  const wantCategoryFilter = Boolean(props.categorySlug) && props.categoryFilter !== 'no'
   // Card extras resolved exactly as shop's own grids do (ShopProductGrid.rsc):
   // without them the cards here carry no contributed variation photos, so the
   // carousel island never mounts with anything the filter's sourceId constraint
   // could match - the very photos the swap borrows.
-  const [{ matrix, swaps }, fromPrices, cardExtras] = await Promise.all([
+  const [{ matrix, swaps }, fromPrices, cardExtras, allCategories, productCategoryIds] = await Promise.all([
     getProductFilterMatches(productIds, groups),
     resolveCardFromPrices(productIds),
     resolveShopCardExtras(productIds),
+    wantCategoryFilter ? listCategories() : Promise.resolve([]),
+    wantCategoryFilter ? Promise.all(productIds.map((id) => getProductCategoryIds(id))) : Promise.resolve([]),
   ])
 
   const tagById = new Map(tags.map((t) => [t.id, t.slug]))
@@ -149,11 +157,46 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
     }
   }
 
+  // Each product earns a filter id per sub-category branch it is filed on, so
+  // the Category group behaves exactly like an admin-defined one - facet
+  // counts, OR-within-group, the query string - with no shell changes at all.
+  let categoryGroup: FltPublicGroup | null = null
+  if (wantCategoryFilter) {
+    const current = allCategories.find((c) => c.slug === props.categorySlug)
+    const children = current ? allCategories.filter((c) => c.parentId === current.id) : []
+    if (current && children.length > 0) {
+      const branchOf = buildBranchIndex(allCategories, current.id)
+      const matchedChildIds = new Set<string>()
+      productIds.forEach((productId, i) => {
+        const filterIds = productBranchFilterIds(productCategoryIds[i] ?? [], branchOf)
+        if (filterIds.length === 0) return
+        const list = matrix.get(productId) ?? []
+        list.push(...filterIds)
+        matrix.set(productId, list)
+        for (const id of filterIds) matchedChildIds.add(id)
+      })
+      // Children nothing in the grid belongs to are dropped, same policy as
+      // admin filters below: never offer a tick that always returns nothing.
+      const offeredChildren = children.filter((c) => matchedChildIds.has(categoryFilterId(c.id)))
+      if (offeredChildren.length > 0) {
+        categoryGroup = {
+          id: CATEGORY_GROUP_ID,
+          name: CATEGORY_GROUP_NAME,
+          // An admin group already using ?category= keeps it; the synthetic
+          // group steps aside rather than fighting over the query string.
+          slug: groups.some((g) => g.slug === CATEGORY_GROUP_SLUG) ? 'sub-category' : CATEGORY_GROUP_SLUG,
+          controlType: 'CHECKBOX',
+          filters: offeredChildren.map((c) => ({ id: categoryFilterId(c.id), label: c.name, slug: c.slug, swatch: null })),
+        }
+      }
+    }
+  }
+
   // Drop filters nothing on this page can match, so a category page never
   // offers a tick that always returns nothing - and drop groups that end up
   // with no filters left, so there is never an empty heading.
   const matchedFilterIds = new Set([...matrix.values()].flat())
-  const offered: FltPublicGroup[] = groups
+  const adminGroups: FltPublicGroup[] = groups
     .map((group) => ({
       id: group.id,
       name: group.name,
@@ -165,6 +208,9 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
         .map((f) => ({ id: f.id, label: f.label, slug: f.slug, swatch: f.swatch })),
     }))
     .filter((group) => group.filters.length > 0)
+  // Category leads the panel: it is the page's own structure, and the widest
+  // cut a shopper can make before the finer admin-defined facets.
+  const offered: FltPublicGroup[] = categoryGroup ? [categoryGroup, ...adminGroups] : adminGroups
 
   const swapsRecord: Record<string, Record<string, { image: string | null; href: string; sourceId: string }>> = {}
   for (const [productId, perFilter] of swaps) swapsRecord[productId] = Object.fromEntries(perFilter)
