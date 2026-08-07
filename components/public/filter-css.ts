@@ -44,6 +44,17 @@ export function shopFilterCss({ tabletBp, mobileBp }: Breakpoints): string {
 .flt-chip{display:inline-flex;align-items:center;gap:6px;padding:5px 10px;font-size:13px;color:var(--color-fg);background:var(--color-bg-subtle);border:1px solid var(--color-border);border-radius:999px;cursor:pointer;line-height:1}
 .flt-chip:hover{border-color:var(--color-text-muted)}
 .flt-chip-x{font-size:15px;line-height:1;color:var(--color-text-muted)}
+.flt-chip-label{overflow-wrap:anywhere}
+/* Two copies of the ticked-filter chips, one shown per layout: the panel's own
+   copy heads the filter list on desktop and inside the open sheet, while the
+   grid's copy is what a shopper sees on the sheet layouts with the panel shut.
+   Showing both at once would just say the same thing twice on one screen. */
+.flt-chips-panel{gap:6px;margin-bottom:12px}
+.flt-pos-top .flt-chips-panel{flex:1 0 100%}
+.flt-chips-panel .flt-chip{max-width:100%;padding:4px 9px;font-size:12px;line-height:1.25;text-align:left}
+.flt-chips-title{flex:1 0 100%;margin:0;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--color-text-secondary)}
+.flt-chip-group{font-size:11px;color:var(--color-text-secondary)}
+.flt-chips-results{display:none}
 .flt-ticks{display:flex;flex-direction:column;gap:7px}
 .flt-pos-top .flt-ticks{flex-direction:row;flex-wrap:wrap;gap:14px}
 .flt-tick{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--color-text);cursor:pointer;line-height:1.3}
@@ -86,6 +97,9 @@ export function shopFilterCss({ tabletBp, mobileBp }: Breakpoints): string {
   .flt-head{display:none}
   .flt-panel{gap:0}
   .flt-pos-top .flt-panel{flex-direction:column;gap:0;padding-bottom:0;border-bottom:0}
+  .flt-chips-results{display:flex}
+  .flt-chips-panel{gap:8px;margin:12px 0 4px}
+  .flt-chips-panel .flt-chip{padding:9px 13px;font-size:13px}
   .flt-fab{position:fixed;left:50%;bottom:calc(18px + env(safe-area-inset-bottom));transform:translateX(-50%);z-index:1200;display:inline-flex;align-items:center;gap:8px;padding:12px 20px;font-size:14px;font-weight:600;color:var(--color-fg);background:var(--color-surface);border:1px solid var(--color-border);border-radius:999px;cursor:pointer;line-height:1;box-shadow:0 4px 18px rgb(0 0 0/.22)}
   .flt-fab-icon{width:15px;height:15px}
   .flt-fab-badge{display:inline-flex;align-items:center;justify-content:center;min-width:19px;height:19px;padding:0 5px;font-size:11px;font-weight:700;color:var(--color-primary-contrast,#fff);background:var(--color-primary);border-radius:999px}

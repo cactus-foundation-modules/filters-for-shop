@@ -211,11 +211,20 @@ export function FilterShell({ groups, matrix, swaps, sortKeys, showSort, columns
     () => groups.map((g) => ({ id: g.id, filterIds: g.filters.map((f) => f.id) })),
     [groups],
   )
-  const filterById = useMemo(() => {
-    const map = new Map<string, { group: FltPublicGroup; filter: FltPublicFilter }>()
-    for (const group of groups) for (const filter of group.filters) map.set(filter.id, { group, filter })
-    return map
-  }, [groups])
+  // Everything ticked, flattened in the owner's own group order rather than in
+  // click order - the summary then reads down the page in the same order as the
+  // groups beneath it, instead of shuffling itself every time one is removed.
+  const activeChips = useMemo(() => {
+    const out: { groupId: string; groupName: string; filterId: string; label: string }[] = []
+    for (const group of groups) {
+      const picked = selected.get(group.id)
+      if (!picked || picked.size === 0) continue
+      for (const filter of group.filters) {
+        if (picked.has(filter.id)) out.push({ groupId: group.id, groupName: group.name, filterId: filter.id, label: filter.label })
+      }
+    }
+    return out
+  }, [groups, selected])
 
   // Show/hide and re-dress the server-rendered cards in place, then mirror the
   // selection into the URL so a filtered view can be shared or reached with the
@@ -402,29 +411,38 @@ export function FilterShell({ groups, matrix, swaps, sortKeys, showSort, columns
 
   const count = (filterId: string, groupId: string) => facetCount(filterId, groupId, matrixEntries, selected)
 
-  const chips = activeCount > 0 && (
-    <div className="flt-chips">
-      {[...selected.entries()].flatMap(([groupId, filterIds]) =>
-        [...filterIds].map((filterId) => {
-          const found = filterById.get(filterId)
-          if (!found) return null
-          return (
-            <button
-              key={filterId}
-              type="button"
-              className="flt-chip"
-              aria-label={`Remove filter ${found.group.name}: ${found.filter.label}`}
-              onClick={() => toggle(groupId, filterId)}
-            >
-              {found.filter.label}
-              <span className="flt-chip-x" aria-hidden>×</span>
-            </button>
-          )
-        }),
-      )}
-      <button type="button" className="flt-clear" onClick={() => setSelected(new Map())}>Clear all</button>
-    </div>
-  )
+  // The ticked filters as removable chips. Two placements, one list:
+  // - `panel` sits at the very top of the panel, above every group, so what is
+  //   already on is readable without scrolling the groups or opening them. It
+  //   carries the group name on each chip, because the same label ("Black")
+  //   turns up in more than one group and out of context it says nothing.
+  // - `results` sits above the grid, and is the only copy on screen on the
+  //   sheet layouts, where the panel is shut behind the pill.
+  const chipRow = (variant: 'panel' | 'results') =>
+    activeChips.length === 0 ? null : (
+      <div className={`flt-chips flt-chips-${variant}`}>
+        {variant === 'panel' && <p className="flt-chips-title">Selected</p>}
+        {activeChips.map(({ groupId, groupName, filterId, label }) => (
+          <button
+            key={filterId}
+            type="button"
+            className="flt-chip"
+            aria-label={`Remove filter ${groupName}: ${label}`}
+            onClick={() => toggle(groupId, filterId)}
+          >
+            {variant === 'panel' && <span className="flt-chip-group">{groupName}</span>}
+            <span className="flt-chip-label">{label}</span>
+            <span className="flt-chip-x" aria-hidden>×</span>
+          </button>
+        ))}
+        {/* The panel already carries a clear - in its head on desktop, in the
+            sheet's footer on the smaller layouts - so only the grid's copy
+            needs one of its own. */}
+        {variant === 'results' && (
+          <button type="button" className="flt-clear" onClick={() => setSelected(new Map())}>Clear all</button>
+        )}
+      </div>
+    )
 
   const shownProducts = visibleCount ?? totalCount ?? 0
 
@@ -480,6 +498,7 @@ export function FilterShell({ groups, matrix, swaps, sortKeys, showSort, columns
           </div>
 
           <div className="flt-sheet-body">
+            {chipRow('panel')}
             {shownGroups.map((group) => {
               const closed = closedGroups.has(group.id)
               const bodyId = `flt-body-${group.id}`
@@ -618,7 +637,7 @@ export function FilterShell({ groups, matrix, swaps, sortKeys, showSort, columns
       </aside>
 
       <div className="flt-results" ref={resultsRef}>
-        {chips}
+        {chipRow('results')}
         {toolbar}
         {grid}
         {visibleCount === 0 && (
