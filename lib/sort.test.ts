@@ -2,10 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { isFltSortValue, sortProductIds, type FltSortKey } from './sort'
 
 const keys: Record<string, FltSortKey> = {
-  a: { name: '800mm Bench Desk', price: 320, created: 300 },
-  b: { name: '1200mm Bench Desk', price: 210, created: 100 },
-  c: { name: 'acoustic Screen', price: null, created: 200 },
-  d: { name: 'Zephyr Pod', price: 210, created: 400 },
+  a: { name: '800mm Bench Desk', price: 320, created: 300, popularity: 40 },
+  b: { name: '1200mm Bench Desk', price: 210, created: 100, popularity: null },
+  c: { name: 'acoustic Screen', price: null, created: 200, popularity: 100_040 },
+  d: { name: 'Zephyr Pod', price: 210, created: 400, popularity: 900 },
 }
 const server = ['a', 'b', 'c', 'd']
 
@@ -37,6 +37,11 @@ describe('sortProductIds', () => {
   it('sorts by age both ways', () => {
     expect(sortProductIds(server, keys, 'newest')).toEqual(['d', 'a', 'c', 'b'])
     expect(sortProductIds(server, keys, 'oldest')).toEqual(['b', 'c', 'a', 'd'])
+  })
+
+  it('sorts best sellers first, unranked last', () => {
+    // c has a sale on top of its seed and so beats d's much higher seed alone.
+    expect(sortProductIds(server, keys, 'best-selling')).toEqual(['c', 'd', 'a', 'b'])
   })
 
   it('survives a product with no sort key at all', () => {

@@ -8,18 +8,23 @@
 // instant, at the cost of only ever ordering the (capped) result set. A shop
 // with thousands of products wants a paginated, server-sorted grid instead.
 
-export type FltSortValue = '' | 'price-asc' | 'price-desc' | 'name-asc' | 'name-desc' | 'newest' | 'oldest'
+export type FltSortValue = '' | 'best-selling' | 'price-asc' | 'price-desc' | 'name-asc' | 'name-desc' | 'newest' | 'oldest'
 
 // Everything the comparator needs about one product, resolved server-side:
 // `price` is the very figure the card prints (a companion module's from-price
 // when there is one, else shop's own), so the order can never disagree with the
 // numbers the shopper is reading. Null when there is no usable figure at all.
-export type FltSortKey = { name: string; price: number | null; created: number }
+// `popularity` is shop's own blended best-seller figure - what this shop has
+// sold, over whatever starting rank it was given. Higher is better. Null where
+// nothing has ranked the product either way, which is not the same as ranking it
+// badly, so those go last rather than at zero.
+export type FltSortKey = { name: string; price: number | null; created: number; popularity: number | null }
 
 export const FLT_SORT_OPTIONS: { value: FltSortValue; label: string }[] = [
   // The empty value is the shop's own order - the one the grid arrived in - so
   // an unsorted page carries no query string at all.
   { value: '', label: 'Recommended' },
+  { value: 'best-selling', label: 'Best selling' },
   { value: 'price-asc', label: 'Price: low to high' },
   { value: 'price-desc', label: 'Price: high to low' },
   { value: 'name-asc', label: 'Name: A to Z' },
@@ -57,8 +62,19 @@ export function sortProductIds(ids: string[], keys: Record<string, FltSortKey>, 
     ((keys[a]?.created ?? 0) - (keys[b]?.created ?? 0)) * dir
   const byName = (a: string, b: string, dir: 1 | -1) =>
     collator.compare(keys[a]?.name ?? '', keys[b]?.name ?? '') * dir
+  // Unranked last in the same way an unpriced product is, and for the same
+  // reason: no figure at all should never beat a real one, however small.
+  const byPopularity = (a: string, b: string) => {
+    const pa = keys[a]?.popularity ?? null
+    const pb = keys[b]?.popularity ?? null
+    if (pa === null && pb === null) return 0
+    if (pa === null) return 1
+    if (pb === null) return -1
+    return pb - pa
+  }
 
   const compare: Record<Exclude<FltSortValue, ''>, (a: string, b: string) => number> = {
+    'best-selling': byPopularity,
     'price-asc': (a, b) => byPrice(a, b, 1),
     'price-desc': (a, b) => byPrice(a, b, -1),
     'name-asc': (a, b) => byName(a, b, 1),

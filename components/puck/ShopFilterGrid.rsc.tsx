@@ -230,6 +230,7 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
       name: product.name,
       price: Number.isFinite(price) ? price : null,
       created: new Date(product.createdAt).getTime(),
+      popularity: product.popularity,
     }
   }
 
