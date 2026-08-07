@@ -98,6 +98,10 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
       // is rendered, so the cap is the honest ceiling of this block.
       perPage: props.limit ?? 24,
       excludeHidden: true,
+      // Whatever the shop hides for being out of stock is gone before the
+      // filters ever see it, so a filter cannot offer a colour whose only
+      // product the category page next door refuses to list.
+      storefront: true,
     }),
     resolveCardTemplate(props.layoutRef),
     listGroups(),
