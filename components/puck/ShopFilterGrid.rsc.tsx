@@ -18,6 +18,7 @@ import { getSettings } from '@/modules/filters-for-shop/lib/db/settings'
 import { getProductFilterMatches } from '@/modules/filters-for-shop/lib/db/matching'
 import { priceInBand } from '@/modules/filters-for-shop/lib/types'
 import { CATEGORY_GROUP_ID, CATEGORY_GROUP_SLUG, CATEGORY_GROUP_NAME, buildBranchIndex, productBranchFilterIds, categoryFilterId } from '@/modules/filters-for-shop/lib/category-filter'
+import type { FltSortKey } from '@/modules/filters-for-shop/lib/sort'
 import { FilterShell, type FltPublicGroup } from '@/modules/filters-for-shop/components/public/FilterShell'
 import { shopFilterCss } from '@/modules/filters-for-shop/components/public/filter-css'
 import { shopFilterGridPuckComponent, type ShopFilterGridProps } from './ShopFilterGrid'
@@ -218,6 +219,20 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
   const swapsRecord: Record<string, Record<string, { image: string | null; href: string; sourceId: string }>> = {}
   for (const [productId, perFilter] of swaps) swapsRecord[productId] = Object.fromEntries(perFilter)
 
+  // What the sort dropdown orders on. The price is the same figure the PRICE
+  // filters band on, and the same one the card prints - the companion module's
+  // from-price when there is one, else shop's own - so a sorted grid can never
+  // disagree with the numbers on screen.
+  const sortKeys: Record<string, FltSortKey> = {}
+  for (const { product, ctx } of items) {
+    const price = Number(ctx.fromPrice ?? ctx.prices.now)
+    sortKeys[product.id] = {
+      name: product.name,
+      price: Number.isFinite(price) ? price : null,
+      created: new Date(product.createdAt).getTime(),
+    }
+  }
+
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: shopCardCss(bp) + shopFilterCss(bp) }} />
@@ -225,6 +240,8 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
         groups={offered}
         matrix={Object.fromEntries(matrix)}
         swaps={swapsRecord}
+        sortKeys={sortKeys}
+        showSort={props.showSort !== 'no'}
         columns={columns}
         position={props.filterPosition === 'top' ? 'top' : 'left'}
         showCounts={props.showCounts !== 'no'}

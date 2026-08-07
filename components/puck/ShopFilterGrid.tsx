@@ -16,6 +16,7 @@ export type ShopFilterGridProps = {
   filterPosition?: string
   showCounts?: string
   categoryFilter?: string
+  showSort?: string
   layoutRef?: LayoutRef | null
 }
 
@@ -105,6 +106,14 @@ export const shopFilterGridPuckComponent = {
         { value: 'no', label: 'No' },
       ],
     },
+    showSort: {
+      type: 'select' as const,
+      label: 'Sort by dropdown',
+      options: [
+        { value: 'yes', label: 'Yes' },
+        { value: 'no', label: 'No' },
+      ],
+    },
     layoutRef: layoutField,
   },
   defaultProps: {
@@ -116,6 +125,7 @@ export const shopFilterGridPuckComponent = {
     filterPosition: 'left',
     showCounts: 'yes',
     categoryFilter: 'yes',
+    showSort: 'yes',
     layoutRef: null,
   },
   render: ShopFilterGrid,

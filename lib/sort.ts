@@ -1,0 +1,70 @@
+// The storefront sort order: the pure half, so the RSC grid and the client
+// shell agree on the option list, the query-string values and the comparator
+// without either owning it.
+//
+// Sorting happens over exactly the products the block rendered, same as
+// filtering - the cards are server-stamped once and then shown, hidden and
+// re-ordered in place. That keeps the card design the shop's own and the sort
+// instant, at the cost of only ever ordering the (capped) result set. A shop
+// with thousands of products wants a paginated, server-sorted grid instead.
+
+export type FltSortValue = '' | 'price-asc' | 'price-desc' | 'name-asc' | 'name-desc' | 'newest' | 'oldest'
+
+// Everything the comparator needs about one product, resolved server-side:
+// `price` is the very figure the card prints (a companion module's from-price
+// when there is one, else shop's own), so the order can never disagree with the
+// numbers the shopper is reading. Null when there is no usable figure at all.
+export type FltSortKey = { name: string; price: number | null; created: number }
+
+export const FLT_SORT_OPTIONS: { value: FltSortValue; label: string }[] = [
+  // The empty value is the shop's own order - the one the grid arrived in - so
+  // an unsorted page carries no query string at all.
+  { value: '', label: 'Recommended' },
+  { value: 'price-asc', label: 'Price: low to high' },
+  { value: 'price-desc', label: 'Price: high to low' },
+  { value: 'name-asc', label: 'Name: A to Z' },
+  { value: 'name-desc', label: 'Name: Z to A' },
+  { value: 'newest', label: 'Newest first' },
+  { value: 'oldest', label: 'Oldest first' },
+]
+
+export function isFltSortValue(value: string): value is FltSortValue {
+  return FLT_SORT_OPTIONS.some((o) => o.value === value)
+}
+
+// Names sort the way a shopper reads them: case-insensitive, and numbers inside
+// them compared as numbers, so "1200mm Bench" follows "800mm Bench" rather than
+// leading it.
+const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
+
+/** Re-order product ids for the chosen sort. `ids` is the server's own order,
+ *  which is what the empty value returns and what ties fall back to (the sort
+ *  is stable), so equal products never shuffle between renders. Products with
+ *  no price go last in both directions - a POA product has no business leading
+ *  the cheapest list or the dearest one. */
+export function sortProductIds(ids: string[], keys: Record<string, FltSortKey>, sort: FltSortValue): string[] {
+  if (!sort) return ids
+  const priced = (id: string) => keys[id]?.price ?? null
+  const byPrice = (a: string, b: string, dir: 1 | -1) => {
+    const pa = priced(a)
+    const pb = priced(b)
+    if (pa === null && pb === null) return 0
+    if (pa === null) return 1
+    if (pb === null) return -1
+    return (pa - pb) * dir
+  }
+  const byCreated = (a: string, b: string, dir: 1 | -1) =>
+    ((keys[a]?.created ?? 0) - (keys[b]?.created ?? 0)) * dir
+  const byName = (a: string, b: string, dir: 1 | -1) =>
+    collator.compare(keys[a]?.name ?? '', keys[b]?.name ?? '') * dir
+
+  const compare: Record<Exclude<FltSortValue, ''>, (a: string, b: string) => number> = {
+    'price-asc': (a, b) => byPrice(a, b, 1),
+    'price-desc': (a, b) => byPrice(a, b, -1),
+    'name-asc': (a, b) => byName(a, b, 1),
+    'name-desc': (a, b) => byName(a, b, -1),
+    newest: (a, b) => byCreated(a, b, -1),
+    oldest: (a, b) => byCreated(a, b, 1),
+  }
+  return [...ids].sort(compare[sort])
+}

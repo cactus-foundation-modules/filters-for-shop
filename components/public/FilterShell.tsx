@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { facetCount, matchesSelection, pickSwapFilters, type FltSelection } from '@/modules/filters-for-shop/lib/filter-logic'
 import { isImageSwatch, type FltControlType } from '@/modules/filters-for-shop/lib/types'
+import { FLT_SORT_OPTIONS, isFltSortValue, sortProductIds, type FltSortKey, type FltSortValue } from '@/modules/filters-for-shop/lib/sort'
 import type { FltSwap } from '@/modules/filters-for-shop/lib/db/matching'
 
 // The serialisable shape the RSC half hands over: no rules, no positions - just
@@ -17,6 +18,11 @@ export type FilterShellProps = {
   // product id -> filter id -> the variation the card borrows when that filter
   // is ticked: its photo, and its own deep link (which pre-selects the options).
   swaps: Record<string, Record<string, FltSwap>>
+  // product id -> the figures the sort dropdown orders on. Resolved server-side
+  // from the same numbers the cards print. Absent entries simply never sort.
+  sortKeys: Record<string, FltSortKey>
+  // Whether the sort dropdown is offered at all (a Puck field on the block).
+  showSort: boolean
   columns: number
   position: 'left' | 'top'
   showCounts: boolean
@@ -39,6 +45,13 @@ export type FilterShellProps = {
 // entries behind a button is more taps than it saves.
 const TICK_FOLD_LIMIT = 8
 const TICK_FOLD_SLACK = 2
+
+// The query-string key the sort writes to. An admin group already using ?sort=
+// keeps it - the sort steps aside rather than fighting over it, exactly as the
+// synthetic Category group does over ?category=.
+function sortParamFor(groups: FltPublicGroup[]): string {
+  return groups.some((g) => g.slug === 'sort') ? 'order-by' : 'sort'
+}
 
 function readInitialSelection(groups: FltPublicGroup[]): FltSelection {
   const selected: FltSelection = new Map()
@@ -103,14 +116,19 @@ function dressCard(el: HTMLElement, swapList: FltSwap[], swapImages: boolean, pr
   }
 }
 
-export function FilterShell({ groups, matrix, swaps, columns, position, showCounts, swapImages, preselectOnClick, tabletBp, children }: FilterShellProps) {
+export function FilterShell({ groups, matrix, swaps, sortKeys, showSort, columns, position, showCounts, swapImages, preselectOnClick, tabletBp, children }: FilterShellProps) {
   const gridRef = useRef<HTMLDivElement>(null)
   const resultsRef = useRef<HTMLDivElement>(null)
   const drawerRef = useRef<HTMLDivElement>(null)
   const fabRef = useRef<HTMLButtonElement>(null)
   const closeRef = useRef<HTMLButtonElement>(null)
   const scrollToResultsRef = useRef(false)
+  // The order the server handed the cards over in, captured before the first
+  // re-order so "Recommended" can always put them back.
+  const serverOrderRef = useRef<string[] | null>(null)
+  const hasSortedRef = useRef(false)
   const [selected, setSelected] = useState<FltSelection>(new Map())
+  const [sort, setSort] = useState<FltSortValue>('')
   const [visibleCount, setVisibleCount] = useState<number | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [closedGroups, setClosedGroups] = useState<Set<string>>(new Set())
@@ -121,12 +139,18 @@ export function FilterShell({ groups, matrix, swaps, columns, position, showCoun
   // is closed then anyway.
   const [isSheet, setIsSheet] = useState(false)
 
+  const sortParam = useMemo(() => sortParamFor(groups), [groups])
+
   // Read the URL only after mount: the cards are server-rendered and must not
   // depend on the query string, or the markup would mismatch on hydration.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- URL is only readable post-mount; seeding during render would mismatch the server-rendered cards
     setSelected(readInitialSelection(groups))
-  }, [groups])
+    const raw = new URLSearchParams(window.location.search).get(sortParam) ?? ''
+    // Anything else in the query string is ignored rather than honoured: the
+    // dropdown must never offer an order the shopper cannot see it is in.
+    if (isFltSortValue(raw)) setSort(raw)
+  }, [groups, sortParam])
 
   useEffect(() => {
     const mq = window.matchMedia(`(max-width: ${tabletBp})`)
@@ -224,9 +248,38 @@ export function FilterShell({ groups, matrix, swaps, columns, position, showCoun
       const slugs = group.filters.filter((f) => filterIds.has(f.id)).map((f) => f.slug)
       if (slugs.length > 0) params.set(group.slug, slugs.join(','))
     }
+    // One writer for the whole query string: the sort rides along with the
+    // ticks so a shared link carries both, and the shop's own order leaves no
+    // trace behind at all.
+    if (sort) params.set(sortParam, sort)
+    else params.delete(sortParam)
     const query = params.toString()
     window.history.replaceState(null, '', query ? `?${query}` : window.location.pathname)
-  }, [selected, matrix, groups, orderedGroups, swaps, swapImages, preselectOnClick])
+  }, [selected, matrix, groups, orderedGroups, swaps, swapImages, preselectOnClick, sort, sortParam])
+
+  // Re-order the server-rendered cards in place for the chosen sort. Real DOM
+  // moves, not CSS `order`: the cards carry links and carousel buttons, and a
+  // visual order that disagreed with the tab order would fail focus order.
+  // Safe to move them under React because `children` is a stable server-passed
+  // node - React never re-reconciles it, so it never puts them back.
+  useEffect(() => {
+    const root = gridRef.current
+    if (!root) return
+    // Nothing to do on the default order until something has actually moved.
+    if (!sort && !hasSortedRef.current) return
+    hasSortedRef.current = true
+    const cards = new Map<string, HTMLElement>()
+    for (const el of root.querySelectorAll<HTMLElement>(':scope > [data-flt-product]')) {
+      cards.set(el.dataset.fltProduct ?? '', el)
+    }
+    if (serverOrderRef.current === null) serverOrderRef.current = [...cards.keys()]
+    const frag = document.createDocumentFragment()
+    for (const id of sortProductIds(serverOrderRef.current, sortKeys, sort)) {
+      const el = cards.get(id)
+      if (el) frag.appendChild(el)
+    }
+    root.appendChild(frag)
+  }, [sort, sortKeys])
 
   function toggle(groupId: string, filterId: string) {
     setSelected((prev) => {
@@ -303,7 +356,49 @@ export function FilterShell({ groups, matrix, swaps, columns, position, showCoun
       {children}
     </div>
   )
-  if (shownGroups.length === 0) return grid
+
+  // The count only earns its line once something is ticked - before that
+  // "Showing 24 of 24" is noise.
+  const showingLine =
+    activeCount > 0 && visibleCount !== null && totalCount !== null ? (
+      <p className="flt-showing" role="status">Showing {visibleCount} of {totalCount}</p>
+    ) : null
+  // No sort keys means no product on the page has anything to sort on, so the
+  // dropdown would be a control that does nothing.
+  const sortControl = showSort && Object.keys(sortKeys).length > 0 ? (
+    <label className="flt-sort">
+      <span className="flt-sort-label">Sort by</span>
+      <select
+        className="flt-sort-select"
+        value={sort}
+        onChange={(e) => setSort(isFltSortValue(e.target.value) ? e.target.value : '')}
+      >
+        {FLT_SORT_OPTIONS.map((option) => (
+          <option key={option.value || 'recommended'} value={option.value}>{option.label}</option>
+        ))}
+      </select>
+    </label>
+  ) : null
+  // The count sits left, the sort right - and the row survives either one being
+  // absent, so the sort never drifts across the page when the ticks clear.
+  const toolbar = showingLine || sortControl ? (
+    <div className="flt-toolbar">
+      {showingLine ?? <span />}
+      {sortControl}
+    </div>
+  ) : null
+
+  // No filter groups worth offering: the grid still gets its sort, just without
+  // the panel and the two-column wrap around it.
+  if (shownGroups.length === 0) {
+    if (!toolbar) return grid
+    return (
+      <div className="flt-results" ref={resultsRef}>
+        {toolbar}
+        {grid}
+      </div>
+    )
+  }
 
   const count = (filterId: string, groupId: string) => facetCount(filterId, groupId, matrixEntries, selected)
 
@@ -524,9 +619,7 @@ export function FilterShell({ groups, matrix, swaps, columns, position, showCoun
 
       <div className="flt-results" ref={resultsRef}>
         {chips}
-        {activeCount > 0 && visibleCount !== null && totalCount !== null && (
-          <p className="flt-showing" role="status">Showing {visibleCount} of {totalCount}</p>
-        )}
+        {toolbar}
         {grid}
         {visibleCount === 0 && (
           <p className="flt-empty">
