@@ -1,9 +1,9 @@
 {
   "name": "filters-for-shop",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "tablePrefix": "flt_",
   "description": "Grouped storefront filters for the shop, built for catalogues with rich variations: define a filter like Blue that stands for any number of real option values (Blue, Stevia Blue, Sky Blue...), drop the filter grid block on category and collection pages, and filtered product cards show the matching variation's own photo and open the product with those options already chosen.",
-  "requiresCoreVersion": "0.5.493",
+  "requiresCoreVersion": "0.5.1026",
   "requiresModules": [
     {
       "name": "shop",
@@ -25,18 +25,19 @@
       "component": "ShopFiltersSettingsTab"
     }
   ],
-  "navGroupLabel": "Shop",
-  "navEntries": [
-    {
-      "label": "Filters",
-      "path": "/m/filters-for-shop/filters",
-      "icon": "<path d=\"M22 3H2l8 9.46V19l4 2v-8.54L22 3z\"/>",
-      "permission": "shop.products"
-    }
-  ],
   "requiredEnvVars": [],
   "cookieCategories": [],
-  "extensionPoints": [],
+  "extensionPoints": [
+    {
+      "point": "shop.products-tabs",
+      "id": "filters-for-shop",
+      "label": "Filters",
+      "order": 40,
+      "permission": "shop.products",
+      "import": "./components/admin/FiltersTab",
+      "component": "FiltersTab"
+    }
+  ],
   "puckBlocks": [
     {
       "type": "ShopFilterGrid",

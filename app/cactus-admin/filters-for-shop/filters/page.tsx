@@ -1,14 +1,9 @@
-import { getSessionFromCookie } from '@/lib/auth/session'
-import { hasShopPermission } from '@/modules/shop/lib/access'
-import { FiltersScreen } from '@/modules/filters-for-shop/components/admin/FiltersScreen'
+import { redirect } from 'next/navigation'
+import { headers } from 'next/headers'
 
-export const metadata = { title: 'Shop filters — Admin' }
-
-export default async function ShopFiltersPage() {
-  const user = await getSessionFromCookie()
-  if (!user) return null
-  const canAccess = await hasShopPermission(user, 'shop.products', { allowAccess: true })
-  if (!canAccess) return <div className="alert alert-danger">You do not have permission to manage shop filters.</div>
-
-  return <FiltersScreen />
+// This screen is now a tab on Shop > Catalogue rather than a sidebar link of its own.
+// The route stays put so old bookmarks land on the tab instead of a 404.
+export default async function ShopFiltersRedirect() {
+  const adminPath = (await headers()).get('x-cactus-admin-path') ?? 'cactus-admin'
+  return redirect(`/${adminPath}/m/shop/products?tab=filters-for-shop`)
 }
