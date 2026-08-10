@@ -129,7 +129,7 @@ export function FiltersScreen() {
     <div>
       <div className="page-header"><h1 className="page-title">Shop filters</h1></div>
 
-      <p style={{ color: 'var(--color-text-muted)', marginTop: 0 }}>
+      <p style={{ color: 'var(--color-text-secondary)', marginTop: 0 }}>
         Filters are what shoppers narrow a category page down by. A group is a heading (Colour), a filter is one
         tick under it (Blue), and each filter stands for any number of real option values - so one Blue covers
         Blue, Stevia Blue and Sky Blue across every product, and keeps covering new products automatically.
@@ -178,7 +178,7 @@ export function FiltersScreen() {
       </section>
 
       {!loaded ? null : groups.length === 0 ? (
-        <p style={{ color: 'var(--color-text-muted)' }}>No filter groups yet. Add one above - Colour is the classic first pick.</p>
+        <p style={{ color: 'var(--color-text-secondary)' }}>No filter groups yet. Add one above - Colour is the classic first pick.</p>
       ) : (
         <div style={{ display: 'grid', gap: '1.5rem' }}>
           {groups.map((group, index) => (
@@ -270,7 +270,7 @@ function GroupCard({ group, catalogue, busy, send, canMoveUp, canMoveDown, onMov
         ) : (
           <h2 style={{ fontSize: '1.0625rem', margin: 0 }}>{group.name}</h2>
         )}
-        <span style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)' }}>
+        <span style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)' }}>
           {group.filters.length === 1 ? '1 filter' : `${group.filters.length} filters`}
         </span>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.35rem', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -394,7 +394,7 @@ function FilterRow({ group, filter, catalogue, busy, send, canMoveUp, canMoveDow
           <button
             type="button"
             onClick={() => setPickerOpen(!pickerOpen)}
-            style={{ border: 0, background: 'none', padding: 0, cursor: 'pointer', font: 'inherit', fontSize: '0.8125rem', color: filter.rules.length === 0 ? 'var(--color-error)' : 'var(--color-text-muted)', textDecoration: 'underline', textUnderlineOffset: 2 }}
+            style={{ border: 0, background: 'none', padding: 0, cursor: 'pointer', font: 'inherit', fontSize: '0.8125rem', color: filter.rules.length === 0 ? 'var(--color-error)' : 'var(--color-text-secondary)', textDecoration: 'underline', textUnderlineOffset: 2 }}
           >
             {ruleSummary}
           </button>
@@ -474,7 +474,7 @@ function PriceBandEditor({ filter, busy, send }: { filter: FltFilter; busy: bool
 
   return (
     <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginTop: '0.5rem', flexWrap: 'wrap' }}>
-      <span style={{ fontSize: '0.8125rem', color: unset ? 'var(--color-error)' : 'var(--color-text-muted)' }}>
+      <span style={{ fontSize: '0.8125rem', color: unset ? 'var(--color-error)' : 'var(--color-text-secondary)' }}>
         {unset ? 'no band set yet -' : 'band:'}
       </span>
       <input
@@ -487,7 +487,7 @@ function PriceBandEditor({ filter, busy, send }: { filter: FltFilter; busy: bool
         aria-label={`${filter.label} band from`}
         disabled={busy}
       />
-      <span style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>up to (not including)</span>
+      <span style={{ fontSize: '0.8125rem', color: 'var(--color-text-secondary)' }}>up to (not including)</span>
       <input
         className="form-control"
         style={{ flex: '0 1 7rem', fontSize: '0.8125rem' }}
@@ -573,23 +573,23 @@ function ValuePicker({ filter, catalogue, busy, send, hasSwatch, swatchable }: {
           aria-label={`Search values for ${filter.label}`}
           autoFocus
         />
-        <span style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)' }}>
+        <span style={{ fontSize: '0.8125rem', color: 'var(--color-text-secondary)' }}>
           {ticked.size === 1 ? '1 value ticked' : `${ticked.size} values ticked`}
         </span>
         <button className="btn btn-primary btn-sm" disabled={busy || !dirty} onClick={() => void save()}>Save values</button>
       </div>
 
       {catalogue.length === 0 ? (
-        <p style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)', margin: 0 }}>
+        <p style={{ fontSize: '0.8125rem', color: 'var(--color-text-secondary)', margin: 0 }}>
           No product options found - this list fills up once products have variations.
         </p>
       ) : shown.length === 0 ? (
-        <p style={{ fontSize: '0.8125rem', color: 'var(--color-text-muted)', margin: 0 }}>Nothing matches that search.</p>
+        <p style={{ fontSize: '0.8125rem', color: 'var(--color-text-secondary)', margin: 0 }}>Nothing matches that search.</p>
       ) : (
         <div style={{ maxHeight: '20rem', overflowY: 'auto', display: 'grid', gap: '0.75rem' }}>
           {shown.map((option) => (
             <div key={`${option.source}:${option.optionName}`}>
-              <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.35rem' }}>
+              <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '0.35rem' }}>
                 {option.source === 'ATTRIBUTE' ? `Spec: ${option.optionName}` : option.optionName}
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem' }}>
@@ -619,7 +619,7 @@ function ValuePicker({ filter, catalogue, busy, send, hasSwatch, swatchable }: {
                       />
                       {value.swatch && !isImageSwatch(value.swatch) && <SwatchDot swatch={value.swatch} size={12} />}
                       <span>{value.label}</span>
-                      <span style={{ color: 'var(--color-text-muted)', fontSize: '0.75rem' }}>{value.productCount}</span>
+                      <span style={{ color: 'var(--color-text-secondary)', fontSize: '0.75rem' }}>{value.productCount}</span>
                     </label>
                   )
                 })}
