@@ -1,6 +1,6 @@
 {
   "name": "cactus-module-filters-for-shop",
-  "version": "0.1.16",
+  "version": "0.1.17",
   "private": true,
   "description": "Grouped storefront filters for the Cactus shop: one filter covers many real option values, with variation-aware product cards."
 }

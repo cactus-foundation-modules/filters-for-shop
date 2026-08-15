@@ -43,7 +43,11 @@ export type FilterShellProps = {
   // It has to live in here rather than around the outside, because the set being
   // paged is the FILTERED set - a pager wrapping the shell would page the raw
   // server list and then the filters would punch holes in each page.
-  paginate?: 'none' | 'more' | 'pages'
+  // 'scroll' is 'more' that presses its own button - same window, same handler,
+  // triggered by a sentinel coming into view. The button stays either way: an
+  // observer is unreachable by keyboard, invisible to a screen reader, and does
+  // nothing where the page never scrolls (a filtered list of nine).
+  paginate?: 'none' | 'more' | 'pages' | 'scroll'
   pageSize?: number
   moreLabel?: string
 }
@@ -366,8 +370,9 @@ export function FilterShell({ groups, matrix, swaps, sortKeys, showSort, columns
     const size = Math.max(1, Math.floor(pageSize) || 1)
     const matching = [...root.querySelectorAll<HTMLElement>(':scope > [data-flt-product]')]
       .filter((el) => !el.hasAttribute('data-flt-hidden'))
-    const from = paginate === 'more' ? 0 : (page - 1) * size
-    const to = paginate === 'more' ? Math.max(size, shownLimit) : from + size
+    const growing = paginate === 'more' || paginate === 'scroll'
+    const from = growing ? 0 : (page - 1) * size
+    const to = growing ? Math.max(size, shownLimit) : from + size
     matching.forEach((el, i) => {
       const onThisPage = i >= from && i < to
       el.style.display = onThisPage ? '' : 'none'
@@ -449,6 +454,26 @@ export function FilterShell({ groups, matrix, swaps, sortKeys, showSort, columns
   // Falls back to the whole set before the first filter pass has run.
   const matchingTotal = visibleCount ?? matrixEntries.length
   const lastPage = Math.max(1, Math.ceil(matchingTotal / Math.max(1, pageSize)))
+  // One way to grow the window, whether a thumb or the observer asked for it.
+  const growing = paginate === 'more' || paginate === 'scroll'
+  const moreToShow = growing && shownLimit < matchingTotal
+  const showMore = useCallback(() => setShownLimit((n) => n + pageSize), [pageSize])
+  const sentinelRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (paginate !== 'scroll' || !moreToShow) return
+    const node = sentinelRef.current
+    // No sentinel or no observer leaves the button doing the whole job, which
+    // it can, because it never went away.
+    if (!node || typeof IntersectionObserver === 'undefined') return
+    const observer = new IntersectionObserver(
+      (entries) => { if (entries.some((e) => e.isIntersecting)) showMore() },
+      // Load before the shopper reaches the end, so the next row is usually
+      // there by the time they arrive at where it goes.
+      { rootMargin: '400px 0px' },
+    )
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [paginate, moreToShow, showMore])
   const grid = (
     <>
       <div className="shop-grid" style={{ ['--shop-cols' as string]: String(columns) } as React.CSSProperties} ref={gridRef}>
@@ -456,11 +481,16 @@ export function FilterShell({ groups, matrix, swaps, sortKeys, showSort, columns
       </div>
       {paginate !== 'none' && matchingTotal > pageSize && (
         <nav className="flt-pager" aria-label="Product pages">
-          {paginate === 'more'
-            ? shownLimit < matchingTotal && (
-                <button type="button" className="flt-pager-more" onClick={() => setShownLimit((n) => n + pageSize)}>
-                  {moreLabel || 'Show more'}
-                </button>
+          {growing
+            ? moreToShow && (
+                <>
+                  <button type="button" className="flt-pager-more" onClick={showMore}>
+                    {moreLabel || 'Show more'}
+                  </button>
+                  {/* What the observer watches: a scroll position, not content,
+                      so it is empty and hidden from assistive tech. */}
+                  {paginate === 'scroll' && <div ref={sentinelRef} aria-hidden="true" style={{ width: '100%', height: 1 }} />}
+                </>
               )
             : (
               <ul className="flt-pager-pages">
