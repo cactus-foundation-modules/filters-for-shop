@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { facetCount, matchesSelection, pickSwapFilters, type FltSelection } from '@/modules/filters-for-shop/lib/filter-logic'
 import { isImageSwatch, type FltControlType } from '@/modules/filters-for-shop/lib/types'
 import { FLT_SORT_OPTIONS, isFltSortValue, sortProductIds, type FltSortKey, type FltSortValue } from '@/modules/filters-for-shop/lib/sort'
@@ -140,6 +140,19 @@ function dressCard(el: HTMLElement, swapList: FltSwap[], swapImages: boolean, pr
   }
 }
 
+// useLayoutEffect where there is a DOM, useEffect where there is not.
+//
+// The paging pass has to land BEFORE the browser paints. A plain useEffect runs
+// after paint, so a category of 217 products drew all 217 cards and then hid 193
+// of them - a visible flash and a scrollbar that jumps under the shopper's hand.
+// useLayoutEffect runs before paint and the shopper only ever sees the page they
+// asked for.
+//
+// React warns if useLayoutEffect is called during a server render, and this
+// component IS server-rendered, so the choice is made once here rather than
+// suppressed at the call site.
+const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect
+
 export function FilterShell({ groups, matrix, swaps, sortKeys, showSort, columns, position, showCounts, swapImages, preselectOnClick, tabletBp, children, paginate = 'none', pageSize = 24, moreLabel }: FilterShellProps) {
   const gridRef = useRef<HTMLDivElement>(null)
   const resultsRef = useRef<HTMLDivElement>(null)
@@ -157,7 +170,7 @@ export function FilterShell({ groups, matrix, swaps, sortKeys, showSort, columns
   // How many of the matching cards are on screen. 'more' grows this window;
   // 'pages' slides it. Meaningless when paginate is 'none', where the paging
   // effect below returns before touching anything.
-  const [shown, setShown] = useState(pageSize)
+  const [shownLimit, setShownLimit] = useState(pageSize)
   const [page, setPage] = useState(1)
   // Whenever the filtered set changes, go back to the top of it. Without this a
   // shopper on page 7 who ticks "Mesh" and cuts the list to nine products lands
@@ -171,7 +184,7 @@ export function FilterShell({ groups, matrix, swaps, sortKeys, showSort, columns
   const [lastResetKey, setLastResetKey] = useState(pageResetKey)
   if (pageResetKey !== lastResetKey) {
     setLastResetKey(pageResetKey)
-    setShown(pageSize)
+    setShownLimit(pageSize)
     setPage(1)
   }
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -346,7 +359,7 @@ export function FilterShell({ groups, matrix, swaps, sortKeys, showSort, columns
   // The `display` it writes is the same property the filter pass writes, and the
   // two never disagree because this one only ever hides cards the filter pass
   // has already shown - a card hidden by a tick stays hidden regardless.
-  useEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     if (paginate === 'none') return
     const root = gridRef.current
     if (!root) return
@@ -354,13 +367,13 @@ export function FilterShell({ groups, matrix, swaps, sortKeys, showSort, columns
     const matching = [...root.querySelectorAll<HTMLElement>(':scope > [data-flt-product]')]
       .filter((el) => !el.hasAttribute('data-flt-hidden'))
     const from = paginate === 'more' ? 0 : (page - 1) * size
-    const to = paginate === 'more' ? Math.max(size, shown) : from + size
+    const to = paginate === 'more' ? Math.max(size, shownLimit) : from + size
     matching.forEach((el, i) => {
       const onThisPage = i >= from && i < to
       el.style.display = onThisPage ? '' : 'none'
       el.toggleAttribute('data-flt-offpage', !onThisPage)
     })
-  }, [paginate, pageSize, page, shown, selected, sort, matrix])
+  }, [paginate, pageSize, page, shownLimit, selected, sort, matrix])
 
   function toggle(groupId: string, filterId: string) {
     setSelected((prev) => {
@@ -444,8 +457,8 @@ export function FilterShell({ groups, matrix, swaps, sortKeys, showSort, columns
       {paginate !== 'none' && matchingTotal > pageSize && (
         <nav className="flt-pager" aria-label="Product pages">
           {paginate === 'more'
-            ? shown < matchingTotal && (
-                <button type="button" className="flt-pager-more" onClick={() => setShown((n) => n + pageSize)}>
+            ? shownLimit < matchingTotal && (
+                <button type="button" className="flt-pager-more" onClick={() => setShownLimit((n) => n + pageSize)}>
                   {moreLabel || 'Show more'}
                 </button>
               )
