@@ -37,6 +37,15 @@ export type FilterShellProps = {
   // tagged data-flt-product. They are shown, hidden and re-dressed in place -
   // never re-rendered - so the card design stays the shop's own.
   children: React.ReactNode
+  // Paging over whatever the filters have left. 'none' is what the shell did
+  // before this existed: every matching card on screen at once.
+  //
+  // It has to live in here rather than around the outside, because the set being
+  // paged is the FILTERED set - a pager wrapping the shell would page the raw
+  // server list and then the filters would punch holes in each page.
+  paginate?: 'none' | 'more' | 'pages'
+  pageSize?: number
+  moreLabel?: string
 }
 
 // A tick list longer than this collapses behind "Show all" - long enough that
@@ -51,6 +60,21 @@ const TICK_FOLD_SLACK = 2
 // synthetic Category group does over ?category=.
 function sortParamFor(groups: FltPublicGroup[]): string {
   return groups.some((g) => g.slug === 'sort') ? 'order-by' : 'sort'
+}
+
+// First, last and a window either side of where the shopper is - the same shape
+// shop's own grid pager uses, kept here rather than imported so this module owns
+// its own UI and does not reach into shop's internals for a list of numbers.
+export function filterPageNumbers(current: number, last: number): (number | '\u2026')[] {
+  if (last <= 7) return Array.from({ length: last }, (_, i) => i + 1)
+  const out: (number | '\u2026')[] = [1]
+  const from = Math.max(2, current - 1)
+  const to = Math.min(last - 1, current + 1)
+  if (from > 2) out.push('\u2026')
+  for (let n = from; n <= to; n++) out.push(n)
+  if (to < last - 1) out.push('\u2026')
+  out.push(last)
+  return out
 }
 
 function readInitialSelection(groups: FltPublicGroup[]): FltSelection {
@@ -116,7 +140,7 @@ function dressCard(el: HTMLElement, swapList: FltSwap[], swapImages: boolean, pr
   }
 }
 
-export function FilterShell({ groups, matrix, swaps, sortKeys, showSort, columns, position, showCounts, swapImages, preselectOnClick, tabletBp, children }: FilterShellProps) {
+export function FilterShell({ groups, matrix, swaps, sortKeys, showSort, columns, position, showCounts, swapImages, preselectOnClick, tabletBp, children, paginate = 'none', pageSize = 24, moreLabel }: FilterShellProps) {
   const gridRef = useRef<HTMLDivElement>(null)
   const resultsRef = useRef<HTMLDivElement>(null)
   const drawerRef = useRef<HTMLDivElement>(null)
@@ -130,6 +154,26 @@ export function FilterShell({ groups, matrix, swaps, sortKeys, showSort, columns
   const [selected, setSelected] = useState<FltSelection>(new Map())
   const [sort, setSort] = useState<FltSortValue>('')
   const [visibleCount, setVisibleCount] = useState<number | null>(null)
+  // How many of the matching cards are on screen. 'more' grows this window;
+  // 'pages' slides it. Meaningless when paginate is 'none', where the paging
+  // effect below returns before touching anything.
+  const [shown, setShown] = useState(pageSize)
+  const [page, setPage] = useState(1)
+  // Whenever the filtered set changes, go back to the top of it. Without this a
+  // shopper on page 7 who ticks "Mesh" and cuts the list to nine products lands
+  // on an empty grid and concludes the filter is broken.
+  //
+  // Adjusted during render rather than in an effect - React's own pattern for
+  // state that has to follow a change in inputs. An effect would paint the wrong
+  // page first and correct it after, which is the flicker this avoids, and would
+  // trip react-hooks/set-state-in-effect for exactly that reason.
+  const pageResetKey = `${sort}|${[...selected.entries()].map(([g, f]) => `${g}:${[...f].sort().join(',')}`).sort().join('|')}|${pageSize}`
+  const [lastResetKey, setLastResetKey] = useState(pageResetKey)
+  if (pageResetKey !== lastResetKey) {
+    setLastResetKey(pageResetKey)
+    setShown(pageSize)
+    setPage(1)
+  }
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [closedGroups, setClosedGroups] = useState<Set<string>>(new Set())
   const [unfoldedGroups, setUnfoldedGroups] = useState<Set<string>>(new Set())
@@ -290,6 +334,34 @@ export function FilterShell({ groups, matrix, swaps, sortKeys, showSort, columns
     root.appendChild(frag)
   }, [sort, sortKeys])
 
+  // The paging window, applied over whatever the filter and sort passes have
+  // left. Declared AFTER both of them on purpose: effects run in declaration
+  // order, so by the time this one reads the DOM the cards are in their final
+  // order with the non-matching ones already display:none.
+  //
+  // It re-reads the DOM rather than tracking indices, for the same reason the
+  // rest of this shell does: the cards are server-rendered nodes React never
+  // reconciles, and the sort moves them about underneath it.
+  //
+  // The `display` it writes is the same property the filter pass writes, and the
+  // two never disagree because this one only ever hides cards the filter pass
+  // has already shown - a card hidden by a tick stays hidden regardless.
+  useEffect(() => {
+    if (paginate === 'none') return
+    const root = gridRef.current
+    if (!root) return
+    const size = Math.max(1, Math.floor(pageSize) || 1)
+    const matching = [...root.querySelectorAll<HTMLElement>(':scope > [data-flt-product]')]
+      .filter((el) => !el.hasAttribute('data-flt-hidden'))
+    const from = paginate === 'more' ? 0 : (page - 1) * size
+    const to = paginate === 'more' ? Math.max(size, shown) : from + size
+    matching.forEach((el, i) => {
+      const onThisPage = i >= from && i < to
+      el.style.display = onThisPage ? '' : 'none'
+      el.toggleAttribute('data-flt-offpage', !onThisPage)
+    })
+  }, [paginate, pageSize, page, shown, selected, sort, matrix])
+
   function toggle(groupId: string, filterId: string) {
     setSelected((prev) => {
       const next = new Map(prev)
@@ -360,10 +432,51 @@ export function FilterShell({ groups, matrix, swaps, sortKeys, showSort, columns
   const totalCount = matrixEntries.length || null
   const shownGroups = groups.filter((g) => g.filters.length > 0)
 
+  // How many cards the filters have left, which is what the pager pages over.
+  // Falls back to the whole set before the first filter pass has run.
+  const matchingTotal = visibleCount ?? matrixEntries.length
+  const lastPage = Math.max(1, Math.ceil(matchingTotal / Math.max(1, pageSize)))
   const grid = (
-    <div className="shop-grid" style={{ ['--shop-cols' as string]: String(columns) } as React.CSSProperties} ref={gridRef}>
-      {children}
-    </div>
+    <>
+      <div className="shop-grid" style={{ ['--shop-cols' as string]: String(columns) } as React.CSSProperties} ref={gridRef}>
+        {children}
+      </div>
+      {paginate !== 'none' && matchingTotal > pageSize && (
+        <nav className="flt-pager" aria-label="Product pages">
+          {paginate === 'more'
+            ? shown < matchingTotal && (
+                <button type="button" className="flt-pager-more" onClick={() => setShown((n) => n + pageSize)}>
+                  {moreLabel || 'Show more'}
+                </button>
+              )
+            : (
+              <ul className="flt-pager-pages">
+                <li>
+                  <button type="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} aria-label="Previous page">
+                    &lsaquo;
+                  </button>
+                </li>
+                {filterPageNumbers(page, lastPage).map((n, i) =>
+                  n === '\u2026' ? (
+                    <li key={`gap-${i}`} className="flt-pager-gap" aria-hidden="true">&hellip;</li>
+                  ) : (
+                    <li key={n}>
+                      <button type="button" onClick={() => setPage(n as number)} aria-current={n === page ? 'page' : undefined} aria-label={`Page ${n}`}>
+                        {n}
+                      </button>
+                    </li>
+                  ),
+                )}
+                <li>
+                  <button type="button" onClick={() => setPage((p) => Math.min(lastPage, p + 1))} disabled={page === lastPage} aria-label="Next page">
+                    &rsaquo;
+                  </button>
+                </li>
+              </ul>
+            )}
+        </nav>
+      )}
+    </>
   )
 
   // The count only earns its line once something is ticked - before that

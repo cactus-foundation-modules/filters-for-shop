@@ -1,7 +1,7 @@
 import { connection } from 'next/server'
 import { Render } from '@puckeditor/core/rsc'
 import type { Data } from '@puckeditor/core'
-import { listProducts, getProductMedia, getProductTagIds } from '@/modules/shop/lib/db'
+import { listProducts, getProductMedia, getProductTagIds, HARD_MAX_PER_PAGE } from '@/modules/shop/lib/db'
 import { listTags, resolveCategoryProductFilter, listCategories, getProductCategoryIds } from '@/modules/shop/lib/db'
 import { getShopConfigCached } from '@/modules/shop/lib/config'
 import { getShopBreakpoints } from '@/modules/shop/lib/breakpoints'
@@ -81,6 +81,13 @@ async function renderTaggedCards(template: PuckData | null, items: CardItem[]) {
 export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
   await connection()
   const columns = props.columns ?? 3
+  // Paging off is this block exactly as it was: fetch `limit`, render `limit`,
+  // no pager, and no raised ceiling. Only a paged grid reaches past the default
+  // 100, and only because the shell now has somewhere to put the extra cards.
+  const paginate = props.paginate === 'more' || props.paginate === 'pages' ? props.paginate : 'none'
+  const limit = props.limit ?? 24
+  const pageSize = paginate === 'none' ? limit : Math.max(1, Math.floor(Number(props.pageSize)) || limit)
+  const fetchCount = paginate === 'none' ? limit : HARD_MAX_PER_PAGE
   const config = await getShopConfigCached()
   const categoryFilter = props.categorySlug
     ? await resolveCategoryProductFilter(props.categorySlug, config.categoryProductDisplayMode)
@@ -94,9 +101,12 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
       ...categoryFilter,
       collectionSlug: props.collectionSlug || undefined,
       tagSlug: props.tagSlug || undefined,
-      // listProducts clamps perPage to 100. Filtering happens over exactly what
-      // is rendered, so the cap is the honest ceiling of this block.
-      perPage: props.limit ?? 24,
+      // Filtering happens over exactly what is rendered, so whatever comes back
+      // here is the honest ceiling of this block. Unpaged that is `limit` and
+      // the default 100 clamp; paged, it is the whole category up to
+      // HARD_MAX_PER_PAGE, with the shell showing a page of it at a time.
+      perPage: fetchCount,
+      maxPerPage: fetchCount,
       excludeHidden: true,
       // Whatever the shop hides for being out of stock is gone before the
       // filters ever see it, so a filter cannot offer a colour whose only
@@ -253,6 +263,9 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
         swapImages={settings.swapCardImages}
         preselectOnClick={settings.preselectOnClick}
         tabletBp={bp.tabletBp}
+        paginate={paginate}
+        pageSize={pageSize}
+        moreLabel={props.moreLabel}
       >
         {cards}
       </FilterShell>

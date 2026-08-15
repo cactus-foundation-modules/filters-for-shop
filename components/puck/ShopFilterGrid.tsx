@@ -18,6 +18,13 @@ export type ShopFilterGridProps = {
   categoryFilter?: string
   showSort?: string
   layoutRef?: LayoutRef | null
+  // Paging. 'none' is what this block did before, and stays the default: every
+  // matching product on screen at once. Switched on, "Number of products" stops
+  // being the ceiling on the whole list and becomes the page size, with the
+  // grid fetching up to shop's HARD_MAX_PER_PAGE behind it.
+  paginate?: string
+  pageSize?: number
+  moreLabel?: string
 }
 
 function FilterGridSkeleton({ columns, position }: { columns: number; position: string }) {
@@ -114,6 +121,19 @@ export const shopFilterGridPuckComponent = {
         { value: 'no', label: 'No' },
       ],
     },
+    // Paged over whatever the filters have left, not over the raw list - see
+    // FilterShell. Off by default so a saved layout renders as it always did.
+    paginate: {
+      type: 'select' as const,
+      label: 'When there are more products than fit',
+      options: [
+        { value: 'none', label: 'Show them all on one page' },
+        { value: 'more', label: 'A "Show more" button' },
+        { value: 'pages', label: 'Numbered pages' },
+      ],
+    },
+    pageSize: { type: 'number' as const, label: 'Products per page (blank uses the number above)', min: 1, max: 100 },
+    moreLabel: { type: 'text' as const, label: '"Show more" button label' },
     layoutRef: layoutField,
   },
   defaultProps: {
@@ -126,6 +146,9 @@ export const shopFilterGridPuckComponent = {
     showCounts: 'yes',
     categoryFilter: 'yes',
     showSort: 'yes',
+    paginate: 'none',
+    pageSize: undefined,
+    moreLabel: 'Show more',
     layoutRef: null,
   },
   render: ShopFilterGrid,
