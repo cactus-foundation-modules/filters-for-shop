@@ -210,18 +210,33 @@ export function FilterShell({ groups, matrix, swaps, sortKeys, showSort, columns
   // this, never off CSS alone. False on the server and first paint - the sheet
   // is closed then anyway.
   const [isSheet, setIsSheet] = useState(false)
+  // Whether the query string has been read into state yet. Until it has, the
+  // selection is empty because nothing has read the URL - not because the shopper
+  // has ticked nothing - and writing that emptiness back over the URL would throw
+  // away the very parameters the read is coming for.
+  const [urlRead, setUrlRead] = useState(false)
 
   const sortParam = useMemo(() => sortParamFor(groups), [groups])
 
   // Read the URL only after mount: the cards are server-rendered and must not
   // depend on the query string, or the markup would mismatch on hydration.
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- URL is only readable post-mount; seeding during render would mismatch the server-rendered cards
+  //
+  // Layout phase, and declared ahead of the mirror below, because the two are in
+  // a race the read has to win. React runs EVERY layout effect before ANY passive
+  // one, so while this was a passive effect the mirror got there first, wrote the
+  // empty starting selection over the query string, and the read then found a
+  // bare URL. Every arrival at an already-filtered page - a refresh, the back
+  // button from a product, a shared link - came back with the ticks cleared.
+  useIsomorphicLayoutEffect(() => {
+    // Seeded here rather than during render: the URL is only readable post-mount,
+    // and seeding from it during render would mismatch the server-rendered cards.
     setSelected(readInitialSelection(groups))
     const raw = new URLSearchParams(window.location.search).get(sortParam) ?? ''
     // Anything else in the query string is ignored rather than honoured: the
     // dropdown must never offer an order the shopper cannot see it is in.
     if (isFltSortValue(raw)) setSort(raw)
+    // Releases the URL mirror below, which must not run before this read.
+    setUrlRead(true)
   }, [groups, sortParam])
 
   useEffect(() => {
@@ -320,6 +335,9 @@ export function FilterShell({ groups, matrix, swaps, sortKeys, showSort, columns
     }
     setVisibleCount(shown)
 
+    // The cards are dressed on every pass, but the URL is only written once the
+    // read above has happened - see the note there.
+    if (!urlRead) return
     const params = new URLSearchParams(window.location.search)
     for (const group of groups) params.delete(group.slug)
     for (const [groupId, filterIds] of selected) {
@@ -336,7 +354,7 @@ export function FilterShell({ groups, matrix, swaps, sortKeys, showSort, columns
     else params.delete(sortParam)
     const query = params.toString()
     window.history.replaceState(null, '', query ? `?${query}` : window.location.pathname)
-  }, [selected, matrix, groups, orderedGroups, swaps, swapImages, preselectOnClick, sort, sortParam])
+  }, [selected, matrix, groups, orderedGroups, swaps, swapImages, preselectOnClick, sort, sortParam, urlRead])
 
   // Re-order the server-rendered cards in place for the chosen sort. Real DOM
   // moves, not CSS `order`: the cards carry links and carousel buttons, and a
