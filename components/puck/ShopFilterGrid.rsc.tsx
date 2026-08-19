@@ -50,7 +50,11 @@ async function renderTaggedCards(template: PuckData | null, items: CardItem[]) {
     // sibling, so the carousel arrows and any overlay controls are real buttons
     // above the link rather than interactive content nested in an <a>.
     <div key={product.id} className="shop-card" data-flt-product={product.id}>
-      <a className="shop-card-link" href={`/shop/products/${product.slug}`} aria-label={product.name} />
+      {/* ctx.productHref carries the shop's chosen product URL style, resolved
+          by shop's buildCardContext - same source of truth as shop's own grids.
+          The fallback keeps this grid linking correctly beside a shop build old
+          enough not to resolve it. */}
+      <a className="shop-card-link" href={ctx.productHref ?? `/shop/products/${product.slug}`} aria-label={product.name} />
       {template ? (
         <Render config={config as any} data={injectShopProductCardEmbed(template, ctx, partTypes) as Data} />
       ) : (
