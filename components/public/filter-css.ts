@@ -1,5 +1,13 @@
 import type { Breakpoints } from '@/modules/shop/lib/breakpoints'
 
+// Stacking order for the open filter sheet and its scrim (the drawer takes
+// SHEET_Z + 1). Chosen to sit ABOVE a live-chat launcher, which parks itself at
+// 2147482000, and BELOW quote-for-shop's lightbox at 2147483000 - so a shopper
+// who opens a quote from behind the sheet still gets the lightbox on top. Only
+// the sheet claims this band; the closed pill stays down in ordinary page
+// furniture where it belongs.
+const SHEET_Z = 2147482100
+
 // Filter panel stylesheet, emitted once by the grid surface alongside shop's
 // own shopCardCss. Class prefix `flt-`. Colours are tokens only, so the panel
 // tracks the site's light/dark theme with no second palette to keep in step.
@@ -12,6 +20,17 @@ import type { Breakpoints } from '@/modules/shop/lib/breakpoints'
 // - Tablet (<= tablet): the drawer is a slide-over sheet from the right, opened
 //   by a floating pill, with a scrim behind and an apply footer.
 // - Phone (<= mobile): same sheet, but rising from the bottom edge.
+//
+// Sharing the bottom edge with a chat widget. A live-chat launcher is a fixed
+// pill in a bottom corner on a z-index up in the two-billions, which is fine for
+// a launcher and ruinous for anything that lands under it. Two consequences,
+// both handled below:
+// - The open sheet is a MODAL, so it outranks the launcher (SHEET_Z). Same call
+//   quote-for-shop's lightbox already makes. Without it the launcher sat over
+//   the sheet's own apply button, covering most of "Show N products".
+// - The closed pill is not a modal and must not outrank anything, so on a phone
+//   - where a centred pill and a corner launcher genuinely cannot both fit - it
+//   moves to the leading edge instead of fighting for the middle.
 export function shopFilterCss({ tabletBp, mobileBp }: Breakpoints): string {
   return `
 .flt-wrap{display:grid;gap:28px;margin-top:8px}
@@ -103,9 +122,9 @@ export function shopFilterCss({ tabletBp, mobileBp }: Breakpoints): string {
   .flt-fab{position:fixed;left:50%;bottom:calc(18px + env(safe-area-inset-bottom));transform:translateX(-50%);z-index:1200;display:inline-flex;align-items:center;gap:8px;padding:12px 20px;font-size:14px;font-weight:600;color:var(--color-fg);background:var(--color-surface);border:1px solid var(--color-border);border-radius:999px;cursor:pointer;line-height:1;box-shadow:0 4px 18px rgb(0 0 0/.22)}
   .flt-fab-icon{width:15px;height:15px}
   .flt-fab-badge{display:inline-flex;align-items:center;justify-content:center;min-width:19px;height:19px;padding:0 5px;font-size:11px;font-weight:700;color:var(--color-primary-contrast,#fff);background:var(--color-primary);border-radius:999px}
-  .flt-scrim{display:block;position:fixed;inset:0;z-index:1201;background:rgb(0 0 0/.45);opacity:0;pointer-events:none;transition:opacity .25s ease}
+  .flt-scrim{display:block;position:fixed;inset:0;z-index:${SHEET_Z};background:rgb(0 0 0/.45);opacity:0;pointer-events:none;transition:opacity .25s ease}
   .flt-scrim.is-open{opacity:1;pointer-events:auto}
-  .flt-drawer{position:fixed;z-index:1202;display:flex;flex-direction:column;background:var(--color-surface);color:var(--color-text);visibility:hidden;transition:transform .28s ease,visibility 0s linear .28s;top:0;right:0;bottom:0;width:min(400px,92vw);transform:translateX(102%);box-shadow:-8px 0 30px rgb(0 0 0/.18)}
+  .flt-drawer{position:fixed;z-index:${SHEET_Z + 1};display:flex;flex-direction:column;background:var(--color-surface);color:var(--color-text);visibility:hidden;transition:transform .28s ease,visibility 0s linear .28s;top:0;right:0;bottom:0;width:min(400px,92vw);transform:translateX(102%);box-shadow:-8px 0 30px rgb(0 0 0/.18)}
   .flt-drawer.is-open{visibility:visible;transform:none;transition:transform .28s ease}
   .flt-sheet-head{display:flex;flex:none;align-items:center;justify-content:space-between;gap:10px;padding:14px 18px;border-bottom:1px solid var(--color-border)}
   .flt-sheet-close{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px;padding:0;border:0;border-radius:999px;background:var(--color-bg-subtle);color:var(--color-fg);cursor:pointer}
@@ -134,6 +153,13 @@ export function shopFilterCss({ tabletBp, mobileBp }: Breakpoints): string {
   .flt-sort{width:100%;margin-left:0;justify-content:space-between}
   .flt-sort-select{flex:1 1 auto;min-width:0;padding:11px 12px}
   .flt-drawer{top:auto;right:0;bottom:0;left:0;width:auto;max-height:85vh;max-height:85dvh;border-radius:16px 16px 0 0;transform:translateY(102%);box-shadow:0 -8px 30px rgb(0 0 0/.18)}
+  /* Off the middle and onto the leading edge. A phone's bottom edge is shared
+     with whatever else the site floats down there - a chat launcher is the
+     usual one, and an expanded one is wide enough to swallow a centred pill
+     whole. There is no width at which both fit in the middle, so the pill gives
+     up the middle rather than the tap. Corner-anchored, it also lands under the
+     thumb rather than in the centre of the screen. */
+  .flt-fab{left:16px;transform:none}
 }
 @media (min-width:calc(${tabletBp} + 1px)){
   .flt-pos-left .flt-panel{position:sticky;top:var(--flt-sticky-top,7rem);max-height:calc(100vh - var(--flt-sticky-top,7rem) - 1rem);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
