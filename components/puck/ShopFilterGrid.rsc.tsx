@@ -217,6 +217,14 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
   // offers a tick that always returns nothing - and drop groups left with
   // fewer than two filters: a heading with one tick under it is not a choice
   // (on a page of sit-stand desks, "Height adjustable: Yes" filters nothing).
+  //
+  // Both rules step aside for a filter this page arrives with ticked. They are
+  // about not offering a pointless CHOICE, and a preselected filter is not a
+  // choice, it is what the page IS - culled away, "Chairs Under £200" would
+  // quietly drop its own price band and show the lot at any price. It stays
+  // offered so the shopper can still clear it, and if it happens to match
+  // nothing the grid comes back empty, which is the honest answer.
+  const preselectedIds = new Set(props.preselectFilterIds ?? [])
   const matchedFilterIds = new Set([...matrix.values()].flat())
   const adminGroups: FltPublicGroup[] = groups
     .map((group) => ({
@@ -226,13 +234,20 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
       controlType: group.controlType,
       filters: group.filters
         .filter((f) => (group.kind === 'PRICE' ? f.priceMin !== null || f.priceMax !== null : f.rules.length > 0))
-        .filter((f) => !settings.hideEmptyFilters || matchedFilterIds.has(f.id))
+        .filter((f) => !settings.hideEmptyFilters || matchedFilterIds.has(f.id) || preselectedIds.has(f.id))
         .map((f) => ({ id: f.id, label: f.label, slug: f.slug, swatch: f.swatch })),
     }))
-    .filter((group) => group.filters.length >= 2)
+    .filter((group) => group.filters.length >= 2 || group.filters.some((f) => preselectedIds.has(f.id)))
   // Category leads the panel: it is the page's own structure, and the widest
   // cut a shopper can make before the finer admin-defined facets.
   const offered: FltPublicGroup[] = categoryGroup ? [categoryGroup, ...adminGroups] : adminGroups
+
+  // Every preselected filter survives the culling above by construction, so all
+  // this drops is an id naming no filter at all - a page still pointing at one
+  // deleted since. Seeding the shell with it would tick a control that is not
+  // there, which nothing could then clear.
+  const offeredFilterIds = new Set(offered.flatMap((g) => g.filters.map((f) => f.id)))
+  const preselect = [...preselectedIds].filter((id) => offeredFilterIds.has(id))
 
   const swapsRecord: Record<string, Record<string, { image: string | null; href: string; sourceId: string }>> = {}
   for (const [productId, perFilter] of swaps) swapsRecord[productId] = Object.fromEntries(perFilter)
@@ -264,6 +279,7 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
         columns={columns}
         position={props.filterPosition === 'top' ? 'top' : 'left'}
         showCounts={props.showCounts !== 'no'}
+        preselect={preselect}
         swapImages={settings.swapCardImages}
         preselectOnClick={settings.preselectOnClick}
         tabletBp={bp.tabletBp}

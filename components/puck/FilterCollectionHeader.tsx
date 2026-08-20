@@ -1,0 +1,34 @@
+// [ANCHOR] - filterPageSlug is injected by the filter collection page
+// (lib/inject-filter-collection-context.ts).
+//
+// EDITOR half only: placeholder + Puck field config. The server render lives in
+// FilterCollectionHeader.rsc.tsx (wired by `rscImport` in the manifest) so
+// next/server + db imports never land in the client editor bundle.
+export type FilterCollectionHeaderProps = {
+  filterPageSlug?: string
+  eyebrow?: string
+  showBreadcrumbs?: string
+  showBlurb?: string
+}
+
+export function FilterCollectionHeader() {
+  return (
+    <div style={{ opacity: 0.6 }}>
+      <div style={{ height: 12, width: '18%', background: 'var(--color-border)', borderRadius: 4, marginBottom: '0.75rem' }} />
+      <div style={{ height: 40, width: '55%', background: 'var(--color-border)', borderRadius: 4, marginBottom: '0.5rem' }} />
+      <div style={{ height: 16, width: '60%', background: 'var(--color-border)', borderRadius: 4 }} />
+    </div>
+  )
+}
+
+export const filterCollectionHeaderPuckComponent = {
+  label: 'Filter Page: Heading [Anchor]',
+  fields: {
+    eyebrow: { type: 'text' as const, label: 'Small line above the name (blank hides it)' },
+    showBreadcrumbs: { type: 'select' as const, label: 'Show breadcrumb trail', options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+    showBlurb: { type: 'select' as const, label: 'Show the short description', options: [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }] },
+  },
+  defaultProps: { eyebrow: '', showBreadcrumbs: 'yes', showBlurb: 'yes' },
+  permissions: { delete: false, duplicate: false },
+  render: FilterCollectionHeader,
+}

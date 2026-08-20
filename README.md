@@ -43,14 +43,34 @@ themselves.
   page scroll locking, Escape/scrim-tap to close, focus trapping and dialog
   semantics; motion respects `prefers-reduced-motion`.
 
+- **Filter collections.** Any filtered view can become a page of its own:
+  "Green Office Chairs" is the Office Chairs category with Colour=Green ticked
+  on arrival, answering at `/green-office-chairs` with its own page title, meta
+  description, sharing picture and designed intro. It starts from a category,
+  collection, tag or the whole shop; the preselection is a starting point, not a
+  lock, so the panel is the ordinary panel and every tick can be cleared.
+  Published pages are added to the site's sitemap automatically. All of them are
+  stamped through one shared `filterCollection` layout, so forty SEO pages do
+  not mean forty layouts.
+
 ## Where things live
 
-- **Admin > Shop > Filters** - build groups, filters and their value rules.
+- **Admin > Shop > Catalogue > Filters** - build groups, filters and their value
+  rules.
+- **Admin > Shop > Catalogue > Filter Collections** - build filter pages: name,
+  address, source, the filters ticked on arrival, the SEO fields, and a link out
+  to the full-screen intro builder.
 - **Settings > Shop > Filters** - hide empty filters, card photo swapping,
   pre-selection on click.
 - **Page builder** - the `Shop: Filters & Product Grid` block, available on the
-  shop index, category and collection layouts. Set the category/collection slug
-  per page (or leave blank on a page whose products you scope by tag).
+  shop index, category, collection and filter-collection layouts. Set the
+  category/collection slug per page (or leave blank on a page whose products you
+  scope by tag); on a filter collection page the source and the preselection are
+  injected, so the block needs no settings there.
+- **Design > Layouts > Filters > Filter collection page** - the one layout every
+  filter collection page is stamped through, built from `Filter Page: Heading`,
+  `Filter Page: Intro` and the grid. Without one, the pages fall back to a plain
+  built-in shell so they work the day they are created.
 
 ## Requirements
 
@@ -63,9 +83,23 @@ themselves.
 
 ## Data
 
-Tables: `flt_groups`, `flt_filters`, `flt_filter_rules`, `flt_settings`.
+Tables: `flt_groups`, `flt_filters`, `flt_filter_rules`, `flt_settings`,
+`flt_collections`, `flt_collection_filters`.
 Rules match by option **name** + value **label** (with a `source` marking
 variation options apart from spec attributes), so they survive re-imports that
 recreate per-product option rows, and a renamed option value simply drops out
 of the filter until re-ticked. Price-band groups have `kind = 'PRICE'` and
 carry `price_min`/`price_max` on each filter instead of rules.
+
+A filter collection stores its source as a plain **slug**, not a foreign key:
+shop owns those tables, and a dependent module has no business constraining the
+module it depends on. A renamed category therefore leaves a page pointing at
+nothing, which the admin screen reports rather than the database refusing a
+rename it should never have had a say in. The preselected filters *are* a real
+reference - those rows are this module's own, so a deleted filter takes its
+preselection with it.
+
+Filter collection pages answer at a bare top-level slug via the manifest's
+`publicRootSlug` claim. Core asks that claim last, after info pages, module
+indexes and the shop's own products, so a collection's slug is checked against
+those owners when it is saved.

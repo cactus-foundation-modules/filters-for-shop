@@ -1,8 +1,13 @@
 {
   "name": "filters-for-shop",
-  "version": "0.1.24",
+  "version": "0.1.25",
   "tablePrefix": "flt_",
-  "description": "Grouped storefront filters for the shop, built for catalogues with rich variations: define a filter like Blue that stands for any number of real option values (Blue, Stevia Blue, Sky Blue...), drop the filter grid block on category and collection pages, and filtered product cards show the matching variation's own photo and open the product with those options already chosen.",
+  "description": "Grouped storefront filters for the shop, built for catalogues with rich variations: define a filter like Blue that stands for any number of real option values (Blue, Stevia Blue, Sky Blue...), drop the filter grid block on category and collection pages, and filtered product cards show the matching variation's own photo and open the product with those options already chosen. Turn any filtered view into a page of its own - Green Office Chairs, at its own address, with its own page title, description and designed intro.",
+  "publicRootSlug": {
+    "page": "./app/root/[slug]/page",
+    "claimImport": "./lib/root-slug",
+    "claimExport": "filtersClaimsRootSlug"
+  },
   "requiresCoreVersion": "0.5.1026",
   "requiresModules": [
     {
@@ -38,6 +43,15 @@
       "component": "FiltersTab"
     },
     {
+      "point": "shop.products-tabs",
+      "id": "filters-collections",
+      "label": "Filter Collections",
+      "order": 41,
+      "permission": "shop.products",
+      "import": "./components/admin/FilterCollectionsTab",
+      "component": "FilterCollectionsTab"
+    },
+    {
       "point": "core.media-reference-rewriters",
       "id": "filters-for-shop",
       "import": "./lib/media-reference-rewriter",
@@ -61,7 +75,28 @@
         "shopIndex",
         "shopCategory",
         "shopCollection",
-        "shopTag"
+        "shopTag",
+        "filterCollection"
+      ]
+    },
+    {
+      "type": "FilterCollectionHeader",
+      "import": "./components/puck/FilterCollectionHeader",
+      "component": "filterCollectionHeaderPuckComponent",
+      "rscComponent": "filterCollectionHeaderPuckRscComponent",
+      "rscImport": "./components/puck/FilterCollectionHeader.rsc",
+      "layoutTypes": [
+        "filterCollection"
+      ]
+    },
+    {
+      "type": "FilterCollectionIntro",
+      "import": "./components/puck/FilterCollectionIntro",
+      "component": "filterCollectionIntroPuckComponent",
+      "rscComponent": "filterCollectionIntroPuckRscComponent",
+      "rscImport": "./components/puck/FilterCollectionIntro.rsc",
+      "layoutTypes": [
+        "filterCollection"
       ]
     }
   ],
@@ -71,9 +106,20 @@
     "routeTiers": []
   },
   "teardown": [
+    "flt_collection_filters",
+    "flt_collections",
     "flt_filter_rules",
     "flt_filters",
     "flt_groups",
     "flt_settings"
-  ]
+  ],
+  "layoutTypes": {
+    "groupLabel": "Filters",
+    "types": [
+      {
+        "key": "filterCollection",
+        "label": "Filter collection page"
+      }
+    ]
+  }
 }

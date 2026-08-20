@@ -25,6 +25,15 @@ export type ShopFilterGridProps = {
   paginate?: string
   pageSize?: number
   moreLabel?: string
+  // Filter ids that arrive already ticked. Injected by a filter collection page
+  // (lib/inject-filter-collection-context.ts) and never an editor field: which
+  // filters a page starts on is a property of that page, not of the block, so
+  // the one shared layout can be stamped for every filter collection.
+  //
+  // Preselection is a starting point, not a lock - the panel is the same panel
+  // and every tick can be cleared, so the page behaves exactly as arriving at
+  // the category with ?colour=green in the address.
+  preselectFilterIds?: string[]
 }
 
 function FilterGridSkeleton({ columns, position }: { columns: number; position: string }) {

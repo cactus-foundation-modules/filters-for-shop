@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { facetCount, matchesSelection, pickSwapFilters, type FltSelection } from '@/modules/filters-for-shop/lib/filter-logic'
+import { applySelectionToParams, preselectByGroup, selectionFromParams } from '@/modules/filters-for-shop/lib/preselect'
 import { isImageSwatch, type FltControlType } from '@/modules/filters-for-shop/lib/types'
 import { FLT_SORT_OPTIONS, isFltSortValue, sortProductIds, type FltSortKey, type FltSortValue } from '@/modules/filters-for-shop/lib/sort'
 import type { FltSwap } from '@/modules/filters-for-shop/lib/db/matching'
@@ -50,6 +51,14 @@ export type FilterShellProps = {
   paginate?: 'none' | 'more' | 'pages' | 'scroll'
   pageSize?: number
   moreLabel?: string
+  // Filter ids that arrive already ticked, on a filter collection page built
+  // around them ("Green Office Chairs" is Colour=Green ticked on arrival). Empty
+  // on every ordinary category, collection and tag page, where this whole
+  // mechanism is inert.
+  //
+  // A starting point, not a lock: the controls are the same controls and the
+  // shopper can clear any of it.
+  preselect?: string[]
 }
 
 // A tick list longer than this collapses behind "Show all" - long enough that
@@ -79,20 +88,6 @@ export function filterPageNumbers(current: number, last: number): (number | '\u2
   if (to < last - 1) out.push('\u2026')
   out.push(last)
   return out
-}
-
-function readInitialSelection(groups: FltPublicGroup[]): FltSelection {
-  const selected: FltSelection = new Map()
-  if (typeof window === 'undefined') return selected
-  const params = new URLSearchParams(window.location.search)
-  for (const group of groups) {
-    const raw = params.get(group.slug)
-    if (!raw) continue
-    const slugs = new Set(raw.split(',').filter(Boolean))
-    const ids = group.filters.filter((f) => slugs.has(f.slug)).map((f) => f.id)
-    if (ids.length > 0) selected.set(group.id, new Set(ids))
-  }
-  return selected
 }
 
 // Re-dress one card for the ticked filters: show the matching variations'
@@ -168,7 +163,7 @@ function dressCard(el: HTMLElement, swapList: FltSwap[], swapImages: boolean, pr
 // suppressed at the call site.
 const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect
 
-export function FilterShell({ groups, matrix, swaps, sortKeys, showSort, columns, position, showCounts, swapImages, preselectOnClick, tabletBp, children, paginate = 'none', pageSize = 24, moreLabel }: FilterShellProps) {
+export function FilterShell({ groups, matrix, swaps, sortKeys, showSort, columns, position, showCounts, swapImages, preselectOnClick, tabletBp, children, paginate = 'none', pageSize = 24, moreLabel, preselect }: FilterShellProps) {
   const gridRef = useRef<HTMLDivElement>(null)
   const resultsRef = useRef<HTMLDivElement>(null)
   const drawerRef = useRef<HTMLDivElement>(null)
@@ -217,6 +212,13 @@ export function FilterShell({ groups, matrix, swaps, sortKeys, showSort, columns
   const [urlRead, setUrlRead] = useState(false)
 
   const sortParam = useMemo(() => sortParamFor(groups), [groups])
+  // `preselect` arrives as a fresh array on every server render, so the split is
+  // keyed on its contents rather than its identity - otherwise the read effect
+  // below would re-run on every render and stamp the starting selection back
+  // over whatever the shopper had just ticked.
+  const preselectKey = (preselect ?? []).join(',')
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- preselectKey is the stable stand-in for `preselect`; see above
+  const preselected = useMemo(() => preselectByGroup(groups, preselect ?? []), [groups, preselectKey])
 
   // Read the URL only after mount: the cards are server-rendered and must not
   // depend on the query string, or the markup would mismatch on hydration.
@@ -230,14 +232,14 @@ export function FilterShell({ groups, matrix, swaps, sortKeys, showSort, columns
   useIsomorphicLayoutEffect(() => {
     // Seeded here rather than during render: the URL is only readable post-mount,
     // and seeding from it during render would mismatch the server-rendered cards.
-    setSelected(readInitialSelection(groups))
+    setSelected(selectionFromParams(groups, new URLSearchParams(window.location.search), preselected))
     const raw = new URLSearchParams(window.location.search).get(sortParam) ?? ''
     // Anything else in the query string is ignored rather than honoured: the
     // dropdown must never offer an order the shopper cannot see it is in.
     if (isFltSortValue(raw)) setSort(raw)
     // Releases the URL mirror below, which must not run before this read.
     setUrlRead(true)
-  }, [groups, sortParam])
+  }, [groups, sortParam, preselected])
 
   useEffect(() => {
     const mq = window.matchMedia(`(max-width: ${tabletBp})`)
@@ -338,15 +340,10 @@ export function FilterShell({ groups, matrix, swaps, sortKeys, showSort, columns
     // The cards are dressed on every pass, but the URL is only written once the
     // read above has happened - see the note there.
     if (!urlRead) return
+    // Which groups get a parameter, which get an empty one and which are left
+    // out entirely is a rule of its own - see lib/preselect.ts.
     const params = new URLSearchParams(window.location.search)
-    for (const group of groups) params.delete(group.slug)
-    for (const [groupId, filterIds] of selected) {
-      if (filterIds.size === 0) continue
-      const group = groups.find((g) => g.id === groupId)
-      if (!group) continue
-      const slugs = group.filters.filter((f) => filterIds.has(f.id)).map((f) => f.slug)
-      if (slugs.length > 0) params.set(group.slug, slugs.join(','))
-    }
+    applySelectionToParams(groups, selected, preselected, params)
     // One writer for the whole query string: the sort rides along with the
     // ticks so a shared link carries both, and the shop's own order leaves no
     // trace behind at all.
@@ -354,7 +351,7 @@ export function FilterShell({ groups, matrix, swaps, sortKeys, showSort, columns
     else params.delete(sortParam)
     const query = params.toString()
     window.history.replaceState(null, '', query ? `?${query}` : window.location.pathname)
-  }, [selected, matrix, groups, orderedGroups, swaps, swapImages, preselectOnClick, sort, sortParam, urlRead])
+  }, [selected, matrix, groups, orderedGroups, swaps, swapImages, preselectOnClick, sort, sortParam, urlRead, preselected])
 
   // Re-order the server-rendered cards in place for the chosen sort. Real DOM
   // moves, not CSS `order`: the cards carry links and carousel buttons, and a
