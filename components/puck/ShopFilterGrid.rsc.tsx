@@ -10,6 +10,7 @@ import { resolveCardFromPrices } from '@/modules/shop/lib/card-price'
 import { resolveShopCardExtras } from '@/modules/shop/lib/card-media'
 import { injectShopProductCardEmbed } from '@/modules/shop/lib/inject-part-context'
 import { formatMoney } from '@/modules/shop/lib/money'
+import { productHref, type ProductUrlStyle } from '@/modules/shop/lib/product-url'
 import { shopCardCss } from '@/modules/shop/components/puck/parts/card-parts'
 import type { PuckData } from '@/modules/shop/lib/types'
 import type { CardItem } from '@/modules/shop/lib/card-template'
@@ -38,7 +39,7 @@ import { shopFilterGridPuckComponent, type ShopFilterGridProps } from './ShopFil
 // Template resolution, context building and the injected embed all still come
 // from shop, so a change to the card design lands here too.
 
-async function renderTaggedCards(template: PuckData | null, items: CardItem[]) {
+async function renderTaggedCards(template: PuckData | null, items: CardItem[], urlStyle: ProductUrlStyle) {
   const { getModuleLayoutPuckRscConfig } = await import('@/lib/puck/config.rsc')
   const config = getModuleLayoutPuckRscConfig('shopProductCard')
   // Every block registered for the card layout type, exactly as shop's own
@@ -53,8 +54,9 @@ async function renderTaggedCards(template: PuckData | null, items: CardItem[]) {
       {/* ctx.productHref carries the shop's chosen product URL style, resolved
           by shop's buildCardContext - same source of truth as shop's own grids.
           The fallback keeps this grid linking correctly beside a shop build old
-          enough not to resolve it. */}
-      <a className="shop-card-link" href={ctx.productHref ?? `/shop/products/${product.slug}`} aria-label={product.name} />
+          enough not to resolve it, and is built through the same helper so it
+          cannot hand back an address a ROOT-style shop no longer serves. */}
+      <a className="shop-card-link" href={ctx.productHref ?? productHref(product.slug, urlStyle)} aria-label={product.name} />
       {template ? (
         <Render config={config as any} data={injectShopProductCardEmbed(template, ctx, partTypes) as Data} />
       ) : (
@@ -138,7 +140,7 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
   // carousel island never mounts with anything the filter's sourceId constraint
   // could match - the very photos the swap borrows.
   const [{ matrix, swaps }, fromPrices, cardExtras, allCategories, productCategoryIds] = await Promise.all([
-    getProductFilterMatches(productIds, groups),
+    getProductFilterMatches(productIds, groups, config.productUrlStyle),
     resolveCardFromPrices(productIds),
     resolveShopCardExtras(productIds),
     wantCategoryFilter ? listCategories() : Promise.resolve([]),
@@ -153,7 +155,7 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
     }),
   )
 
-  const cards = await renderTaggedCards(template, items)
+  const cards = await renderTaggedCards(template, items, config.productUrlStyle)
 
   // PRICE groups are matched right here, not in SQL: the band compares against
   // the same figure the card prints - the companion module's from-price when
