@@ -18,6 +18,11 @@ themselves.
   value ("Recommended Usage: 24 hours", "Shape: Wave"), read from the product
   itself or any of its variations, so filters work for differences that never
   made it onto a variation option.
+- **Ticks that agree with each other.** Ticking Red and Leather asks for a red
+  leather chair, not a chair that happens to be sold in red and, separately, in
+  black leather. Where both ticks are carried by variations, one variation has
+  to carry both. Ticks that belong to the listing rather than to a variation - a
+  price band, a sub-category, a spec on the parent product - stay listing-wide.
 - **Price bands.** A group can be a set of price bands (Under £100, £100 - £250,
   ...) matched against the same figure the product card shows - including
   products with no variations at all.

@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { facetCount, matchesSelection, pickSwapFilters, type FltSelection } from '@/modules/filters-for-shop/lib/filter-logic'
+import { facetCount, matchesSelection, pickSwapFilters, type FltMatrixEntry, type FltSelection } from '@/modules/filters-for-shop/lib/filter-logic'
 import { applySelectionToParams, preselectByGroup, selectionFromParams } from '@/modules/filters-for-shop/lib/preselect'
 import { isImageSwatch, type FltControlType } from '@/modules/filters-for-shop/lib/types'
 import { FLT_SORT_OPTIONS, isFltSortValue, sortProductIds, type FltSortKey, type FltSortValue } from '@/modules/filters-for-shop/lib/sort'
@@ -12,10 +12,29 @@ import type { FltSwap } from '@/modules/filters-for-shop/lib/db/matching'
 export type FltPublicFilter = { id: string; label: string; slug: string; swatch: string | null }
 export type FltPublicGroup = { id: string; name: string; slug: string; controlType: FltControlType; filters: FltPublicFilter[] }
 
+// Which filters each enabled variation resolves, interned. Filter ids appear
+// once in `filterIds`, each distinct combination once in `combos`, and a
+// product names the combinations it has by index.
+//
+// Interned because it is otherwise enormous: a whole-catalogue page carries
+// tens of thousands of variations, and spelling the ids out per variation would
+// put about a megabyte of repeated UUIDs into the HTML. Folded like this the
+// same page is well under a tenth of that.
+export type FltVariationIndex = {
+  filterIds: string[]
+  combos: number[][]
+  byProduct: Record<string, number[]>
+}
+
 export type FilterShellProps = {
   groups: FltPublicGroup[]
   // product id -> filter ids it matches (via its enabled variations).
   matrix: Record<string, string[]>
+  // The finer answer to the same question: which filters each single variation
+  // resolves. Without it "Red" and "Leather" only have to be true somewhere on
+  // the listing, so a chair sold in red fabric and in black leather counts as a
+  // red leather chair. Absent on a shop with no variations module.
+  variations?: FltVariationIndex
   // product id -> filter id -> the variation the card borrows when that filter
   // is ticked: its photo, and its own deep link (which pre-selects the options).
   swaps: Record<string, Record<string, FltSwap>>
@@ -65,6 +84,8 @@ export type FilterShellProps = {
 // most groups never fold, short enough that a 40-entry group doesn't bury the
 // ones below it. Lists only just over the line stay unfolded: hiding two
 // entries behind a button is more taps than it saves.
+const EMPTY_VARIATIONS: FltVariationIndex = { filterIds: [], combos: [], byProduct: {} }
+
 const TICK_FOLD_LIMIT = 8
 const TICK_FOLD_SLACK = 2
 
@@ -163,7 +184,7 @@ function dressCard(el: HTMLElement, swapList: FltSwap[], swapImages: boolean, pr
 // suppressed at the call site.
 const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect
 
-export function FilterShell({ groups, matrix, swaps, sortKeys, showSort, columns, position, showCounts, swapImages, preselectOnClick, tabletBp, children, paginate = 'none', pageSize = 24, moreLabel, preselect }: FilterShellProps) {
+export function FilterShell({ groups, matrix, variations = EMPTY_VARIATIONS, swaps, sortKeys, showSort, columns, position, showCounts, swapImages, preselectOnClick, tabletBp, children, paginate = 'none', pageSize = 24, moreLabel, preselect }: FilterShellProps) {
   const gridRef = useRef<HTMLDivElement>(null)
   const resultsRef = useRef<HTMLDivElement>(null)
   const drawerRef = useRef<HTMLDivElement>(null)
@@ -295,7 +316,21 @@ export function FilterShell({ groups, matrix, swaps, sortKeys, showSort, columns
     }
   }, [drawerOpen, isSheet])
 
-  const matrixEntries = useMemo(() => Object.entries(matrix), [matrix])
+  // The interned variation detail, read back into filter ids once. The combo
+  // rows are shared, so a product holding twenty of them holds twenty
+  // references, not twenty copies.
+  const combosByProduct = useMemo(() => {
+    const rows = variations.combos.map((combo) => combo.map((i) => variations.filterIds[i] ?? ''))
+    const out = new Map<string, string[][]>()
+    for (const [productId, indices] of Object.entries(variations.byProduct)) {
+      out.set(productId, indices.map((i) => rows[i] ?? []))
+    }
+    return out
+  }, [variations])
+  const matrixEntries = useMemo<FltMatrixEntry[]>(
+    () => Object.entries(matrix).map(([productId, filterIds]) => [productId, filterIds, combosByProduct.get(productId)]),
+    [matrix, combosByProduct],
+  )
   const orderedGroups = useMemo(
     () => groups.map((g) => ({ id: g.id, filterIds: g.filters.map((f) => f.id) })),
     [groups],
@@ -325,7 +360,7 @@ export function FilterShell({ groups, matrix, swaps, sortKeys, showSort, columns
     for (const el of root.querySelectorAll<HTMLElement>('[data-flt-product]')) {
       const productId = el.dataset.fltProduct ?? ''
       const matched = matrix[productId] ?? []
-      const ok = matchesSelection(matched, selected)
+      const ok = matchesSelection(matched, selected, combosByProduct.get(productId))
       el.style.display = ok ? '' : 'none'
       el.toggleAttribute('data-flt-hidden', !ok)
       if (ok) shown++
@@ -351,7 +386,7 @@ export function FilterShell({ groups, matrix, swaps, sortKeys, showSort, columns
     else params.delete(sortParam)
     const query = params.toString()
     window.history.replaceState(null, '', query ? `?${query}` : window.location.pathname)
-  }, [selected, matrix, groups, orderedGroups, swaps, swapImages, preselectOnClick, sort, sortParam, urlRead, preselected])
+  }, [selected, matrix, combosByProduct, groups, orderedGroups, swaps, swapImages, preselectOnClick, sort, sortParam, urlRead, preselected])
 
   // Re-order the server-rendered cards in place for the chosen sort. Real DOM
   // moves, not CSS `order`: the cards carry links and carousel buttons, and a

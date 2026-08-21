@@ -139,7 +139,7 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
   // without them the cards here carry no contributed variation photos, so the
   // carousel island never mounts with anything the filter's sourceId constraint
   // could match - the very photos the swap borrows.
-  const [{ matrix, swaps }, fromPrices, cardExtras, allCategories, productCategoryIds] = await Promise.all([
+  const [{ matrix, combos, swaps }, fromPrices, cardExtras, allCategories, productCategoryIds] = await Promise.all([
     getProductFilterMatches(productIds, groups, config.productUrlStyle),
     resolveCardFromPrices(productIds),
     resolveShopCardExtras(productIds),
@@ -251,6 +251,42 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
   const offeredFilterIds = new Set(offered.flatMap((g) => g.filters.map((f) => f.id)))
   const preselect = [...preselectedIds].filter((id) => offeredFilterIds.has(id))
 
+  // Intern the per-variation detail for the wire. Every distinct combination is
+  // written once and named by index afterwards - see FltVariationIndex, and the
+  // note there on why the spelled-out version is too big to send.
+  //
+  // Price and sub-category ids are deliberately not in here. They were added to
+  // the matrix above and belong to the listing, not to any one variation, so a
+  // cross-group check must not hold a variation to them.
+  const variationFilterIds: string[] = []
+  const indexOfFilter = new Map<string, number>()
+  const indexOfCombo = new Map<string, number>()
+  const comboTable: number[][] = []
+  const combosByProduct: Record<string, number[]> = {}
+  for (const [productId, list] of combos) {
+    const seenHere = new Set<number>()
+    for (const combo of list) {
+      const encoded = combo
+        .map((filterId) => {
+          let at = indexOfFilter.get(filterId)
+          if (at === undefined) {
+            at = variationFilterIds.push(filterId) - 1
+            indexOfFilter.set(filterId, at)
+          }
+          return at
+        })
+        .sort((a, b) => a - b)
+      const key = encoded.join(',')
+      let row = indexOfCombo.get(key)
+      if (row === undefined) {
+        row = comboTable.push(encoded) - 1
+        indexOfCombo.set(key, row)
+      }
+      seenHere.add(row)
+    }
+    if (seenHere.size > 0) combosByProduct[productId] = [...seenHere]
+  }
+
   const swapsRecord: Record<string, Record<string, { image: string | null; href: string; sourceId: string }>> = {}
   for (const [productId, perFilter] of swaps) swapsRecord[productId] = Object.fromEntries(perFilter)
 
@@ -275,6 +311,7 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
       <FilterShell
         groups={offered}
         matrix={Object.fromEntries(matrix)}
+        variations={{ filterIds: variationFilterIds, combos: comboTable, byProduct: combosByProduct }}
         swaps={swapsRecord}
         sortKeys={sortKeys}
         showSort={props.showSort !== 'no'}

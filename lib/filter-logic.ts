@@ -1,21 +1,60 @@
 // Pure selection maths, shared by the storefront shell and its tests.
 // Within a group ticks are OR'd (Blue or Green); across groups they are AND'd
-// (a blue product in oak). A group with nothing ticked doesn't constrain.
+// (a blue product in oak).  A group with nothing ticked doesn't constrain.
+//
+// The AND is answered by ONE variation where it can be. A listing sold in red
+// fabric and in black leather is not a red leather chair, and before this it
+// counted as one: the two ticks were checked against the listing as a whole,
+// so any pair of variations between them could satisfy them. Ticks that a
+// variation can carry now have to be carried by the same variation.
+//
+// Filters no variation resolves - a price band, a sub-category, a spec stamped
+// on the parent product - stay listing-wide, because that is what they are.
 
 export type FltSelection = Map<string, Set<string>> // group id -> filter ids
 
-export function matchesSelection(productFilterIds: string[], selection: FltSelection): boolean {
+// What one enabled variation resolves: the filter ids it carries, through its
+// own option values and through its child product's specs. A product's combos
+// are deduplicated, so two variations differing only in something nobody
+// filters on count once.
+export type FltCombos = ReadonlyArray<ReadonlyArray<string>>
+
+// A product's row in the shell's matrix: everything the listing matches, and
+// the per-variation detail when there is any.
+export type FltMatrixEntry = [productId: string, filterIds: string[], combos?: FltCombos]
+
+export function matchesSelection(productFilterIds: string[], selection: FltSelection, combos?: FltCombos): boolean {
   if (selection.size === 0) return true
   const matched = new Set(productFilterIds)
+  // Which ticked filters each group is answered by. A group answered by
+  // nothing at all fails outright, exactly as it always did.
+  const answered: string[][] = []
   for (const filterIds of selection.values()) {
     if (filterIds.size === 0) continue
-    let hit = false
-    for (const id of filterIds) {
-      if (matched.has(id)) { hit = true; break }
-    }
-    if (!hit) return false
+    const hits: string[] = []
+    for (const id of filterIds) if (matched.has(id)) hits.push(id)
+    if (hits.length === 0) return false
+    answered.push(hits)
   }
-  return true
+  // One group cannot contradict itself, and with no variation detail there is
+  // nothing finer to check against.
+  if (answered.length < 2 || !combos || combos.length === 0) return true
+
+  const perVariation = new Set<string>()
+  for (const combo of combos) for (const id of combo) perVariation.add(id)
+  // A group answered by something outside the variation space is settled for
+  // the whole listing and puts no constraint on which variation is chosen.
+  const mustAgree = answered.filter((hits) => hits.every((id) => perVariation.has(id)))
+  if (mustAgree.length < 2) return true
+
+  for (const combo of combos) {
+    let ok = true
+    for (const hits of mustAgree) {
+      if (!hits.some((id) => combo.includes(id))) { ok = false; break }
+    }
+    if (ok) return true
+  }
+  return false
 }
 
 // The count shown against a filter: how many products would be visible if it
@@ -25,14 +64,14 @@ export function matchesSelection(productFilterIds: string[], selection: FltSelec
 export function facetCount(
   filterId: string,
   groupId: string,
-  matrixEntries: [string, string[]][],
+  matrixEntries: FltMatrixEntry[],
   selection: FltSelection,
 ): number {
   const trial: FltSelection = new Map(selection)
   trial.set(groupId, new Set([filterId]))
   let n = 0
-  for (const [, filterIds] of matrixEntries) {
-    if (matchesSelection(filterIds, trial)) n++
+  for (const [, filterIds, combos] of matrixEntries) {
+    if (matchesSelection(filterIds, trial, combos)) n++
   }
   return n
 }

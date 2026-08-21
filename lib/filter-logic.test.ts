@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { facetCount, matchesSelection, pickSwapFilter, pickSwapFilters, type FltSelection } from './filter-logic'
+import { facetCount, matchesSelection, pickSwapFilter, pickSwapFilters, type FltMatrixEntry, type FltSelection } from './filter-logic'
 
 const sel = (entries: [string, string[]][]): FltSelection => new Map(entries.map(([g, ids]) => [g, new Set(ids)]))
 
@@ -24,10 +24,45 @@ describe('matchesSelection', () => {
   it('ignores a group whose tick set is empty', () => {
     expect(matchesSelection(['blue'], sel([['colour', ['blue']], ['finish', []]]))).toBe(true)
   })
+
+  // The chair sold in red fabric and in black leather. Both ticks are true of
+  // the listing; no single chair answers both.
+  it('makes two groups agree on one variation when both are variation-borne', () => {
+    const listing = ['red', 'black', 'fabric', 'leather']
+    const combos = [['red', 'fabric'], ['black', 'leather']]
+    expect(matchesSelection(listing, sel([['colour', ['red']], ['upholstery', ['leather']]]), combos)).toBe(false)
+    expect(matchesSelection(listing, sel([['colour', ['red']], ['upholstery', ['fabric']]]), combos)).toBe(true)
+    expect(matchesSelection(listing, sel([['colour', ['black']], ['upholstery', ['leather']]]), combos)).toBe(true)
+  })
+
+  it('still ORs within a group across different variations', () => {
+    const combos = [['red', 'fabric'], ['black', 'leather']]
+    const selection = sel([['colour', ['red', 'black']], ['upholstery', ['leather']]])
+    expect(matchesSelection(['red', 'black', 'fabric', 'leather'], selection, combos)).toBe(true)
+  })
+
+  it('leaves a group alone when it is answered by something no variation carries', () => {
+    // Price bands and sub-categories belong to the listing. A £120 red chair
+    // whose red is one variation still answers both ticks.
+    const combos = [['red', 'fabric'], ['black', 'leather']]
+    const selection = sel([['colour', ['red']], ['price', ['100-250']]])
+    expect(matchesSelection(['red', 'black', 'fabric', 'leather', '100-250'], selection, combos)).toBe(true)
+  })
+
+  it('falls back to the listing when there is no variation detail', () => {
+    const selection = sel([['colour', ['red']], ['upholstery', ['leather']]])
+    expect(matchesSelection(['red', 'leather'], selection)).toBe(true)
+    expect(matchesSelection(['red', 'leather'], selection, [])).toBe(true)
+  })
+
+  it('never rescues a listing that fails on the flat list', () => {
+    const combos = [['red', 'fabric']]
+    expect(matchesSelection(['red', 'fabric'], sel([['upholstery', ['leather']]]), combos)).toBe(false)
+  })
 })
 
 describe('facetCount', () => {
-  const matrix: [string, string[]][] = [
+  const matrix: FltMatrixEntry[] = [
     ['p1', ['blue', 'oak']],
     ['p2', ['blue']],
     ['p3', ['green', 'oak']],
