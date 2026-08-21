@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="module-art.webp" alt="Filters for Shop" width="640" />
+</p>
+
 # Filters for Shop
 
 Grouped storefront filters for the Cactus shop, designed for catalogues where the
