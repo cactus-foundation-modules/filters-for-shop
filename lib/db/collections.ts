@@ -214,3 +214,32 @@ export async function setCollectionFilters(collectionId: string, filterIds: stri
     await tx.$executeRaw`UPDATE "flt_collections" SET "updated_at" = CURRENT_TIMESTAMP WHERE "id" = ${collectionId}`
   })
 }
+
+/**
+ * The published pages, in their own order, as the shop's collection index wants
+ * them: name, blurb, cover and address. Deliberately one flat query with no
+ * product counting - a filter collection's count is its whole filtered query,
+ * and running 169 of those to print a number under a tile is not a trade worth
+ * making. The card leaves the line out instead.
+ */
+export async function listPublishedCollectionsForIndex(): Promise<Array<{
+  id: string
+  name: string
+  slug: string
+  shortDescription: string | null
+  ogImage: string | null
+}>> {
+  const rows = await prisma.$queryRaw<Record<string, unknown>[]>`
+    SELECT "id", "name", "slug", "short_description", "og_image"
+      FROM "flt_collections"
+     WHERE "status" = 'PUBLISHED'
+     ORDER BY "position", "created_at"
+  `
+  return rows.map((row) => ({
+    id: row.id as string,
+    name: row.name as string,
+    slug: row.slug as string,
+    shortDescription: (row.short_description as string | null) ?? null,
+    ogImage: (row.og_image as string | null) ?? null,
+  }))
+}
