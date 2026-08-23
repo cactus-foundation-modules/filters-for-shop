@@ -45,11 +45,18 @@ export function isFltSortValue(value: string): value is FltSortValue {
 // comparator: it decodes to the empty value like any other spelling of it.
 export const FLT_SORT_RECOMMENDED_PARAM = 'recommended'
 
-/** The sort a query-string value asks for, or null where it names no order this
- *  dropdown offers - the dropdown must never sit in an order the shopper cannot
- *  see it is in, so an unknown value is ignored rather than honoured. */
-export function sortValueFromParam(raw: string): FltSortValue | null {
+/** The sort a query-string value asks for, or null where it asks for nothing at
+ *  all - which is a missing parameter, an empty one, and any value naming an
+ *  order this dropdown does not offer. All three mean "the shopper has not
+ *  chosen", i.e. leave the grid on the order it started in.
+ *
+ *  The empty string is NOT the shop's own order here, however much it looks
+ *  like it: an absent parameter reads as '' too, so honouring it would drag a
+ *  grid that starts on Best selling back to Recommended the moment it mounted.
+ *  Recommended asks for itself by name instead. */
+export function sortValueFromParam(raw: string | null): FltSortValue | null {
   if (raw === FLT_SORT_RECOMMENDED_PARAM) return ''
+  if (!raw) return null
   return isFltSortValue(raw) ? raw : null
 }
 

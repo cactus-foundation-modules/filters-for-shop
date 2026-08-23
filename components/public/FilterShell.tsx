@@ -265,10 +265,11 @@ export function FilterShell({ groups, matrix, variations = EMPTY_VARIATIONS, swa
     // Seeded here rather than during render: the URL is only readable post-mount,
     // and seeding from it during render would mismatch the server-rendered cards.
     setSelected(selectionFromParams(groups, new URLSearchParams(window.location.search), preselected))
-    const raw = new URLSearchParams(window.location.search).get(sortParam) ?? ''
-    // Anything else in the query string is ignored rather than honoured: the
-    // dropdown must never offer an order the shopper cannot see it is in.
-    const asked = sortValueFromParam(raw)
+    // A missing parameter asks for nothing, and so does one naming an order this
+    // dropdown does not offer - the dropdown must never sit in an order the
+    // shopper cannot see it is in. Either way the grid stays on its starting
+    // sort, which is the order the server already rendered the cards in.
+    const asked = sortValueFromParam(new URLSearchParams(window.location.search).get(sortParam))
     if (asked !== null) setSort(asked)
     // Releases the URL mirror below, which must not run before this read.
     setUrlRead(true)

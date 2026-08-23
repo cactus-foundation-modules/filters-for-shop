@@ -313,7 +313,9 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
   //
   // An order this build does not offer is ignored rather than guessed at, the
   // same way the dropdown ignores an unknown query string.
-  const defaultSort = sortValueFromParam(props.defaultSort ?? 'best-selling') ?? ''
+  // Blank (or absent) is a layout saved before the field existed, not a request
+  // for the shop's own order - Recommended says its own name, `recommended`.
+  const defaultSort = sortValueFromParam(props.defaultSort || 'best-selling') ?? ''
   const serverOrder = items.map(({ product }) => product.id)
   const ordered = defaultSort ? sortProductIds(serverOrder, sortKeys, defaultSort) : serverOrder
   // Re-ordering the rendered cards, not the products, so nothing about how a

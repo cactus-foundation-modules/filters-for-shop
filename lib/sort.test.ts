@@ -69,10 +69,16 @@ describe('sortValueFromParam', () => {
 
   it('passes real sort values straight through', () => {
     expect(sortValueFromParam('best-selling')).toBe('best-selling')
-    expect(sortValueFromParam('')).toBe('')
   })
 
   it('refuses an order the dropdown does not offer', () => {
     expect(sortValueFromParam('stock-asc')).toBeNull()
+  })
+
+  it('reads a missing or empty parameter as no choice at all', () => {
+    // Not as the empty sort value: a grid starting on Best selling would be
+    // dragged back to Recommended by its own bare address.
+    expect(sortValueFromParam(null)).toBeNull()
+    expect(sortValueFromParam('')).toBeNull()
   })
 })
