@@ -19,7 +19,7 @@ import { getSettings } from '@/modules/filters-for-shop/lib/db/settings'
 import { getProductFilterMatches } from '@/modules/filters-for-shop/lib/db/matching'
 import { priceInBand } from '@/modules/filters-for-shop/lib/types'
 import { CATEGORY_GROUP_ID, CATEGORY_GROUP_SLUG, CATEGORY_GROUP_NAME, buildBranchIndex, productBranchFilterIds, categoryFilterId } from '@/modules/filters-for-shop/lib/category-filter'
-import type { FltSortKey } from '@/modules/filters-for-shop/lib/sort'
+import { sortProductIds, sortValueFromParam, type FltSortKey } from '@/modules/filters-for-shop/lib/sort'
 import { FilterShell, type FltPublicGroup } from '@/modules/filters-for-shop/components/public/FilterShell'
 import { shopFilterCss } from '@/modules/filters-for-shop/components/public/filter-css'
 import { shopFilterGridPuckComponent, type ShopFilterGridProps } from './ShopFilterGrid'
@@ -305,6 +305,23 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
     }
   }
 
+  // The order the grid opens in, applied HERE rather than left to the shell:
+  // the cards are server-rendered, so a starting sort the client had to perform
+  // would be a page that paints in one order and rearranges itself a moment
+  // later. Blank on a layout saved before the field existed, which means best
+  // selling - see the note on the field.
+  //
+  // An order this build does not offer is ignored rather than guessed at, the
+  // same way the dropdown ignores an unknown query string.
+  const defaultSort = sortValueFromParam(props.defaultSort ?? 'best-selling') ?? ''
+  const serverOrder = items.map(({ product }) => product.id)
+  const ordered = defaultSort ? sortProductIds(serverOrder, sortKeys, defaultSort) : serverOrder
+  // Re-ordering the rendered cards, not the products, so nothing about how a
+  // card is built depends on the sort. Every id came from `items`, so the
+  // lookup cannot miss.
+  const cardById = new Map(serverOrder.map((id, at) => [id, cards[at]]))
+  const sortedCards = defaultSort ? ordered.map((id) => cardById.get(id)) : cards
+
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: shopCardCss(bp) + shopFilterCss(bp) }} />
@@ -315,6 +332,8 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
         swaps={swapsRecord}
         sortKeys={sortKeys}
         showSort={props.showSort !== 'no'}
+        defaultSort={defaultSort}
+        serverOrder={serverOrder}
         columns={columns}
         position={props.filterPosition === 'top' ? 'top' : 'left'}
         showCounts={props.showCounts !== 'no'}
@@ -326,7 +345,7 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
         pageSize={pageSize}
         moreLabel={props.moreLabel}
       >
-        {cards}
+        {sortedCards}
       </FilterShell>
     </>
   )

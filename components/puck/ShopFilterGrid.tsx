@@ -1,3 +1,4 @@
+import { FLT_SORT_OPTIONS, FLT_SORT_RECOMMENDED_PARAM } from '@/modules/filters-for-shop/lib/sort'
 import type { LayoutRef } from '@/lib/puck/LayoutPickerField'
 import { ShopLayoutPicker } from '@/modules/shop/components/public/ShopLayoutPicker'
 
@@ -17,6 +18,11 @@ export type ShopFilterGridProps = {
   showCounts?: string
   categoryFilter?: string
   showSort?: string
+  // Which order the grid starts in. Blank (an older saved layout, from before
+  // this field existed) means best selling, which is the order a shop wants a
+  // category page to open on far more often than the order the products happen
+  // to be listed in.
+  defaultSort?: string
   layoutRef?: LayoutRef | null
   // Paging. 'none' is what this block did before, and stays the default: every
   // matching product on screen at once. Switched on, "Number of products" stops
@@ -130,6 +136,14 @@ export const shopFilterGridPuckComponent = {
         { value: 'no', label: 'No' },
       ],
     },
+    // The same list the dropdown itself offers, so the two can never drift.
+    // 'recommended' stands in for the empty value here: a Puck select with a
+    // blank value reads as "nothing chosen".
+    defaultSort: {
+      type: 'select' as const,
+      label: 'Products start sorted by',
+      options: FLT_SORT_OPTIONS.map((o) => ({ value: o.value || FLT_SORT_RECOMMENDED_PARAM, label: o.label })),
+    },
     // Paged over whatever the filters have left, not over the raw list - see
     // FilterShell. Off by default so a saved layout renders as it always did.
     paginate: {
@@ -156,6 +170,7 @@ export const shopFilterGridPuckComponent = {
     showCounts: 'yes',
     categoryFilter: 'yes',
     showSort: 'yes',
+    defaultSort: 'best-selling',
     paginate: 'none',
     pageSize: undefined,
     moreLabel: 'Show more',

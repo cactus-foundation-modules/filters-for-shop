@@ -37,6 +37,22 @@ export function isFltSortValue(value: string): value is FltSortValue {
   return FLT_SORT_OPTIONS.some((o) => o.value === value)
 }
 
+// The shop's own order has no query value of its own - an unsorted page carries
+// no query string at all - which is fine until the grid STARTS on some other
+// order. Then "Recommended" is a real choice away from the default and needs
+// something to say so, or a refresh would land the shopper back on the starting
+// order they had just left. This is that word, and it never reaches the
+// comparator: it decodes to the empty value like any other spelling of it.
+export const FLT_SORT_RECOMMENDED_PARAM = 'recommended'
+
+/** The sort a query-string value asks for, or null where it names no order this
+ *  dropdown offers - the dropdown must never sit in an order the shopper cannot
+ *  see it is in, so an unknown value is ignored rather than honoured. */
+export function sortValueFromParam(raw: string): FltSortValue | null {
+  if (raw === FLT_SORT_RECOMMENDED_PARAM) return ''
+  return isFltSortValue(raw) ? raw : null
+}
+
 // Names sort the way a shopper reads them: case-insensitive, and numbers inside
 // them compared as numbers, so "1200mm Bench" follows "800mm Bench" rather than
 // leading it.

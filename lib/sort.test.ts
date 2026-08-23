@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isFltSortValue, sortProductIds, type FltSortKey } from './sort'
+import { isFltSortValue, sortProductIds, sortValueFromParam, type FltSortKey } from './sort'
 
 const keys: Record<string, FltSortKey> = {
   a: { name: '800mm Bench Desk', price: 320, created: 300, popularity: 40 },
@@ -59,5 +59,20 @@ describe('isFltSortValue', () => {
   it('rejects anything else, so a hand-typed query string cannot pick a sort', () => {
     expect(isFltSortValue('stock-asc')).toBe(false)
     expect(isFltSortValue('drop table')).toBe(false)
+  })
+})
+
+describe('sortValueFromParam', () => {
+  it('reads "recommended" back as the shop\'s own order', () => {
+    expect(sortValueFromParam('recommended')).toBe('')
+  })
+
+  it('passes real sort values straight through', () => {
+    expect(sortValueFromParam('best-selling')).toBe('best-selling')
+    expect(sortValueFromParam('')).toBe('')
+  })
+
+  it('refuses an order the dropdown does not offer', () => {
+    expect(sortValueFromParam('stock-asc')).toBeNull()
   })
 })

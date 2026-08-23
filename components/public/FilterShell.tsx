@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { facetCount, matchesSelection, pickSwapFilters, type FltMatrixEntry, type FltSelection } from '@/modules/filters-for-shop/lib/filter-logic'
 import { applySelectionToParams, preselectByGroup, selectionFromParams } from '@/modules/filters-for-shop/lib/preselect'
 import { isImageSwatch, type FltControlType } from '@/modules/filters-for-shop/lib/types'
-import { FLT_SORT_OPTIONS, isFltSortValue, sortProductIds, type FltSortKey, type FltSortValue } from '@/modules/filters-for-shop/lib/sort'
+import { FLT_SORT_OPTIONS, FLT_SORT_RECOMMENDED_PARAM, isFltSortValue, sortProductIds, sortValueFromParam, type FltSortKey, type FltSortValue } from '@/modules/filters-for-shop/lib/sort'
 import type { FltSwap } from '@/modules/filters-for-shop/lib/db/matching'
 
 // The serialisable shape the RSC half hands over: no rules, no positions - just
@@ -43,6 +43,16 @@ export type FilterShellProps = {
   sortKeys: Record<string, FltSortKey>
   // Whether the sort dropdown is offered at all (a Puck field on the block).
   showSort: boolean
+  // The order the grid starts in, before the shopper touches the dropdown (a
+  // Puck field on the block). The server has ALREADY rendered the cards in it,
+  // so this is only what the dropdown is set to and what the query string
+  // counts as untouched - never a re-order the shopper watches happen.
+  defaultSort?: FltSortValue
+  // The shop's own order of the product ids, i.e. what "Recommended" means -
+  // handed over rather than read off the cards, because the cards may well
+  // arrive already sorted into `defaultSort` and reading THAT back would make
+  // the two options the same order.
+  serverOrder?: string[]
   columns: number
   position: 'left' | 'top'
   showCounts: boolean
@@ -184,19 +194,20 @@ function dressCard(el: HTMLElement, swapList: FltSwap[], swapImages: boolean, pr
 // suppressed at the call site.
 const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect
 
-export function FilterShell({ groups, matrix, variations = EMPTY_VARIATIONS, swaps, sortKeys, showSort, columns, position, showCounts, swapImages, preselectOnClick, tabletBp, children, paginate = 'none', pageSize = 24, moreLabel, preselect }: FilterShellProps) {
+export function FilterShell({ groups, matrix, variations = EMPTY_VARIATIONS, swaps, sortKeys, showSort, defaultSort = '', serverOrder, columns, position, showCounts, swapImages, preselectOnClick, tabletBp, children, paginate = 'none', pageSize = 24, moreLabel, preselect }: FilterShellProps) {
   const gridRef = useRef<HTMLDivElement>(null)
   const resultsRef = useRef<HTMLDivElement>(null)
   const drawerRef = useRef<HTMLDivElement>(null)
   const fabRef = useRef<HTMLButtonElement>(null)
   const closeRef = useRef<HTMLButtonElement>(null)
   const scrollToResultsRef = useRef(false)
-  // The order the server handed the cards over in, captured before the first
-  // re-order so "Recommended" can always put them back.
-  const serverOrderRef = useRef<string[] | null>(null)
+  // The shop's own order, so "Recommended" can always put the cards back. Seeded
+  // from the server where it was passed; otherwise off the DOM on the first
+  // re-order, which is the same thing on a grid that starts unsorted.
+  const serverOrderRef = useRef<string[] | null>(serverOrder ? [...serverOrder] : null)
   const hasSortedRef = useRef(false)
   const [selected, setSelected] = useState<FltSelection>(new Map())
-  const [sort, setSort] = useState<FltSortValue>('')
+  const [sort, setSort] = useState<FltSortValue>(defaultSort)
   const [visibleCount, setVisibleCount] = useState<number | null>(null)
   // How many of the matching cards are on screen. 'more' grows this window;
   // 'pages' slides it. Meaningless when paginate is 'none', where the paging
@@ -257,7 +268,8 @@ export function FilterShell({ groups, matrix, variations = EMPTY_VARIATIONS, swa
     const raw = new URLSearchParams(window.location.search).get(sortParam) ?? ''
     // Anything else in the query string is ignored rather than honoured: the
     // dropdown must never offer an order the shopper cannot see it is in.
-    if (isFltSortValue(raw)) setSort(raw)
+    const asked = sortValueFromParam(raw)
+    if (asked !== null) setSort(asked)
     // Releases the URL mirror below, which must not run before this read.
     setUrlRead(true)
   }, [groups, sortParam, preselected])
@@ -382,11 +394,13 @@ export function FilterShell({ groups, matrix, variations = EMPTY_VARIATIONS, swa
     // One writer for the whole query string: the sort rides along with the
     // ticks so a shared link carries both, and the shop's own order leaves no
     // trace behind at all.
-    if (sort) params.set(sortParam, sort)
+    // The starting order leaves no trace, whatever it is; everything else does,
+    // including "Recommended" where that is a step away from the default.
+    if (sort !== defaultSort) params.set(sortParam, sort || FLT_SORT_RECOMMENDED_PARAM)
     else params.delete(sortParam)
     const query = params.toString()
     window.history.replaceState(null, '', query ? `?${query}` : window.location.pathname)
-  }, [selected, matrix, combosByProduct, groups, orderedGroups, swaps, swapImages, preselectOnClick, sort, sortParam, urlRead, preselected])
+  }, [selected, matrix, combosByProduct, groups, orderedGroups, swaps, swapImages, preselectOnClick, sort, sortParam, defaultSort, urlRead, preselected])
 
   // Re-order the server-rendered cards in place for the chosen sort. Real DOM
   // moves, not CSS `order`: the cards carry links and carousel buttons, and a
@@ -396,8 +410,9 @@ export function FilterShell({ groups, matrix, variations = EMPTY_VARIATIONS, swa
   useIsomorphicLayoutEffect(() => {
     const root = gridRef.current
     if (!root) return
-    // Nothing to do on the default order until something has actually moved.
-    if (!sort && !hasSortedRef.current) return
+    // Nothing to do while the cards are still in the order the server rendered
+    // them in - which is the starting sort, not necessarily the shop's own.
+    if (sort === defaultSort && !hasSortedRef.current) return
     hasSortedRef.current = true
     const cards = new Map<string, HTMLElement>()
     for (const el of root.querySelectorAll<HTMLElement>(':scope > [data-flt-product]')) {
@@ -410,7 +425,7 @@ export function FilterShell({ groups, matrix, variations = EMPTY_VARIATIONS, swa
       if (el) frag.appendChild(el)
     }
     root.appendChild(frag)
-  }, [sort, sortKeys])
+  }, [sort, defaultSort, sortKeys])
 
   // The paging window, applied over whatever the filter and sort passes have
   // left. Declared AFTER both of them on purpose: effects run in declaration
