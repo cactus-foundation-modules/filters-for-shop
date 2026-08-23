@@ -5,7 +5,7 @@ import { listProducts, getProductMedia, getProductTagIds, HARD_MAX_PER_PAGE } fr
 import { listTags, resolveCategoryProductFilter, listCategories, getProductCategoryIds } from '@/modules/shop/lib/db'
 import { getShopConfigCached } from '@/modules/shop/lib/config'
 import { getShopBreakpoints } from '@/modules/shop/lib/breakpoints'
-import { resolveCardTemplate, buildCardContext, buildTagMaps } from '@/modules/shop/lib/card-template'
+import { resolveCardTemplate, buildCardContext, buildTagMaps, withCardAdminEditHrefs } from '@/modules/shop/lib/card-template'
 import { resolveCardFromPrices } from '@/modules/shop/lib/card-price'
 import { resolveShopCardExtras } from '@/modules/shop/lib/card-media'
 import { injectShopProductCardEmbed } from '@/modules/shop/lib/inject-part-context'
@@ -46,7 +46,13 @@ async function renderTaggedCards(template: PuckData | null, items: CardItem[], u
   // renderCards passes - without it a companion module's card part renders its
   // editor skeleton on the live grid.
   const partTypes = config.categories.blocks.components
-  return items.map(({ product, ctx }) => (
+  // The signed-in admin's shortcut into each product's editor, resolved once for
+  // the whole grid by shop (lib/admin-edit.ts) and read by shop's own Card: Name
+  // part. A shopper gets the items back untouched. Requires shop 0.1.295 - see
+  // requiresModules in the manifest, which is what stops this grid being updated
+  // ahead of the shop that carries the helper.
+  const withEdit = await withCardAdminEditHrefs(items)
+  return withEdit.map(({ product, ctx }) => (
     // Same wrapper shape as shop's renderCards: a div with a stretched link
     // sibling, so the carousel arrows and any overlay controls are real buttons
     // above the link rather than interactive content nested in an <a>.
