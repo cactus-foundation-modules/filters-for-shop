@@ -1,8 +1,8 @@
 import { connection } from 'next/server'
 import { Render } from '@puckeditor/core/rsc'
 import type { Data } from '@puckeditor/core'
-import { listProducts, getProductMedia, getProductTagIds, HARD_MAX_PER_PAGE } from '@/modules/shop/lib/db'
-import { listTags, resolveCategoryProductFilter, listCategories, getProductCategoryIds } from '@/modules/shop/lib/db'
+import { listProducts, getProductMediaForProducts, getProductTagIdsForProducts, HARD_MAX_PER_PAGE } from '@/modules/shop/lib/db'
+import { listTags, resolveCategoryProductFilter, listCategories, getProductCategoryIdsForProducts } from '@/modules/shop/lib/db'
 import { getShopConfigCached } from '@/modules/shop/lib/config'
 import { getShopBreakpoints } from '@/modules/shop/lib/breakpoints'
 import { resolveCardTemplate, buildCardContext, buildTagMaps, withCardAdminEditHrefs } from '@/modules/shop/lib/card-template'
@@ -145,21 +145,21 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
   // without them the cards here carry no contributed variation photos, so the
   // carousel island never mounts with anything the filter's sourceId constraint
   // could match - the very photos the swap borrows.
-  const [{ matrix, combos, swaps }, fromPrices, cardExtras, allCategories, productCategoryIds] = await Promise.all([
+  const [{ matrix, combos, swaps }, fromPrices, cardExtras, allCategories, categoryIdsByProduct, mediaByProduct, tagIdsByProduct] = await Promise.all([
     getProductFilterMatches(productIds, groups, config.productUrlStyle),
     resolveCardFromPrices(productIds),
     resolveShopCardExtras(productIds),
     wantCategoryFilter ? listCategories() : Promise.resolve([]),
-    wantCategoryFilter ? Promise.all(productIds.map((id) => getProductCategoryIds(id))) : Promise.resolve([]),
+    wantCategoryFilter ? getProductCategoryIdsForProducts(productIds) : Promise.resolve(new Map<string, string[]>()),
+    getProductMediaForProducts(productIds),
+    getProductTagIdsForProducts(productIds),
   ])
 
   const { tagById, tagsById } = buildTagMaps(tags)
-  const items: CardItem[] = await Promise.all(
-    products.map(async (product) => {
-      const [media, tagIds] = await Promise.all([getProductMedia(product.id), getProductTagIds(product.id)])
-      return { product, ctx: buildCardContext(product, media, tagById, tagIds, config.currencySymbol, config, fromPrices.get(product.id) ?? null, cardExtras.get(product.id), tagsById) }
-    }),
-  )
+  const items: CardItem[] = products.map((product) => ({
+    product,
+    ctx: buildCardContext(product, mediaByProduct.get(product.id) ?? [], tagById, tagIdsByProduct.get(product.id) ?? [], config.currencySymbol, config, fromPrices.get(product.id) ?? null, cardExtras.get(product.id), tagsById),
+  }))
 
   const cards = await renderTaggedCards(template, items, config.productUrlStyle)
 
@@ -194,8 +194,8 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
     if (current && children.length > 0) {
       const branchOf = buildBranchIndex(allCategories, current.id)
       const matchedChildIds = new Set<string>()
-      productIds.forEach((productId, i) => {
-        const filterIds = productBranchFilterIds(productCategoryIds[i] ?? [], branchOf)
+      productIds.forEach((productId) => {
+        const filterIds = productBranchFilterIds(categoryIdsByProduct.get(productId) ?? [], branchOf)
         if (filterIds.length === 0) return
         const list = matrix.get(productId) ?? []
         list.push(...filterIds)

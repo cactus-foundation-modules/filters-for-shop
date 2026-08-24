@@ -16,6 +16,42 @@ const MAX_ATTRIBUTE_LABELS = 60
 // it) and product-attributes values (specs like "Recommended Usage: 24 hours",
 // counted through variant children up to the parent product where needed).
 export async function listCatalogueValues(): Promise<FltCatalogueOption[]> {
+  const now = Date.now()
+  if (catalogueSlot && now - catalogueSlot.at < CATALOGUE_TTL_MS) return catalogueSlot.promise
+  const promise = buildCatalogueValues()
+  const mine = { promise, at: now }
+  catalogueSlot = mine
+  promise.catch(() => { if (catalogueSlot === mine) catalogueSlot = null })
+  return promise
+}
+
+// Memoised because the attribute half of this is genuinely expensive and the
+// picker is opened over and over while an owner builds a set of filter rules.
+// It aggregates the WHOLE catalogue with no product filter - every attribute
+// value against every product value, rolled up through variant children to
+// their parents - which on the live install measures at about 1.1 seconds and
+// spills some 35MB to temporary files on the way. Doing that again three
+// seconds later, for an answer that has not changed, is the waste; doing it once
+// is simply the price of the screen.
+//
+// A minute rather than the 30 seconds used elsewhere: nothing here is on a
+// visitor's path, and the cost of a miss is a second of an admin's time. The
+// trade is that a value added on another screen can take up to a minute to
+// appear in the picker, which is why the window is short enough to wait out
+// rather than something to reason about.
+//
+// A rejected read clears the slot so the next open retries rather than serving
+// the failure for a minute.
+const CATALOGUE_TTL_MS = 60_000
+let catalogueSlot: { promise: Promise<FltCatalogueOption[]>; at: number } | null = null
+
+/** Drop the memo. Call after anything that changes attributes, values or their
+ *  product assignments, so the picker reflects it on the next open. */
+export function invalidateCatalogueValues(): void {
+  catalogueSlot = null
+}
+
+async function buildCatalogueValues(): Promise<FltCatalogueOption[]> {
   const [options, attributes] = await Promise.all([listOptionValues(), listAttributeValues()])
   return [...options, ...attributes]
 }
