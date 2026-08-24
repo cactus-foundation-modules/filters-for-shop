@@ -44,7 +44,13 @@ export function shopFilterCss({ tabletBp, mobileBp }: Breakpoints): string {
 .flt-pos-top .flt-head{flex:1 0 100%}
 .flt-title{font-family:var(--display-family,Georgia,serif);font-size:18px;font-weight:600;margin:0;color:var(--color-fg);line-height:1.2}
 .flt-clear{border:0;background:none;padding:0;font-size:13px;font-weight:600;color:var(--color-primary);cursor:pointer;text-decoration:underline;text-underline-offset:2px}
-.flt-clear:hover{opacity:.8}
+/* Own the hover outright, the same way .flt-group-head above has to. A site that
+   sets a button hover colour in its design settings emits a blanket main-button
+   hover rule with !important on both background and colour - there to beat Puck's
+   inline styles on the site's own Button block - and it lands on this bare
+   <button> too, dropping a coloured pill behind a word that is meant to read as a
+   link. Nothing weaker than !important gets out of the way of !important. */
+.flt-clear:hover{opacity:.8;background:none!important;color:var(--color-primary)!important}
 .flt-fab{display:none}
 .flt-scrim{display:none}
 .flt-sheet-head{display:none}
