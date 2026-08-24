@@ -51,10 +51,33 @@ export function shopFilterCss({ tabletBp, mobileBp }: Breakpoints): string {
 .flt-sheet-foot{display:none}
 .flt-drawer{display:contents}
 .flt-sheet-body{display:contents}
-.flt-group{border:0;padding:0;margin:0;min-width:0;border-top:1px solid var(--color-border)}
-.flt-pos-top .flt-group{border-top:0}
-.flt-group-head{display:flex;width:100%;align-items:center;justify-content:space-between;gap:8px;padding:11px 0;border:0;background:none;cursor:pointer;font:inherit;font-size:13px;font-weight:600;color:var(--color-fg);text-align:left}
-.flt-group-head:hover{color:var(--color-primary)}
+/* The group bleeds 12px each side and gives it straight back as padding, so
+   its divider runs the full width of the head's hover fill while the names and
+   ticks stay lined up where they were. */
+.flt-group{border:0;padding:0 12px;margin-block:0;margin-inline:-12px;min-width:0;border-top:1px solid var(--color-border)}
+.flt-pos-top .flt-group{border-top:0;padding-inline:0;margin-inline:0}
+/* Top layout puts the groups side by side, where a head painting past its own
+   group would lean into the neighbour's gap and, on the first one, out of the
+   container altogether. So no bleed there: the head keeps its padding and the
+   body matches it, lining the name up with its own ticks instead. */
+.flt-pos-top .flt-group-head{width:100%;margin-inline:0}
+.flt-pos-top .flt-group-body{padding-inline:12px}
+/* The head takes inline padding and hands it straight back as a negative
+   margin - the same trick the pinned block below uses - so the group name still
+   lines up with the ticks underneath while the hover fill has room to paint
+   past its own text instead of hugging it.
+
+   The hover pair is !important on purpose, which is not a habit worth catching
+   elsewhere. A site that sets a button hover colour in its design settings
+   emits a main-button hover rule with !important on both colours, to
+   beat Puck's inline styles on its own Button block, and that rule lands on any
+   bare <button> the storefront draws - including this one, which the site did
+   not draw and cannot see in its settings. The result was a filter head that
+   flipped to the site's button colours mid-hover, text and chevron with it. Own
+   the state here instead: the fill is a token, and the label and chevron
+   (currentColor) stay exactly the colour they were at rest. */
+.flt-group-head{display:flex;width:calc(100% + 24px);margin-inline:-12px;align-items:center;justify-content:space-between;gap:8px;padding:11px 12px;border:0;border-radius:8px;background:none;cursor:pointer;font:inherit;font-size:13px;font-weight:600;color:var(--color-fg);text-align:left}
+.flt-group-head:hover{background:var(--color-bg-subtle)!important;color:var(--color-fg)!important}
 .flt-group-name{display:inline-flex;align-items:center;gap:7px;min-width:0}
 .flt-group-badge{display:inline-flex;align-items:center;justify-content:center;min-width:17px;height:17px;padding:0 4px;font-size:10px;font-weight:700;color:var(--color-primary-contrast,#fff);background:var(--color-primary);border-radius:999px;line-height:1}
 .flt-chevron{flex:none;width:9px;height:9px;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(45deg);transition:transform .15s ease;margin-right:2px}
@@ -144,7 +167,7 @@ export function shopFilterCss({ tabletBp, mobileBp }: Breakpoints): string {
   .flt-foot-apply:hover{opacity:.92}
   .flt-foot-clear{flex:none;padding:13px 16px;font-size:14px;font-weight:600;color:var(--color-fg);background:none;border:1px solid var(--color-border);border-radius:999px;cursor:pointer;line-height:1}
   .flt-foot-clear:disabled{opacity:.4;cursor:default}
-  .flt-group-head{padding:14px 0;font-size:14px}
+  .flt-group-head{padding:14px 12px;font-size:14px}
   .flt-tick{min-height:40px;font-size:15px}
   .flt-tick input{width:18px;height:18px}
   .flt-swatch{padding:9px 14px 9px 9px;font-size:14px}
