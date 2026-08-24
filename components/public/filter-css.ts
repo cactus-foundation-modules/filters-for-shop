@@ -170,13 +170,22 @@ export function shopFilterCss({ tabletBp, mobileBp }: Breakpoints): string {
   .flt-fab{left:16px;transform:none}
 }
 @media (min-width:calc(${tabletBp} + 1px)){
-  .flt-pos-left .flt-panel{position:sticky;top:var(--flt-sticky-top,7rem);max-height:calc(100vh - var(--flt-sticky-top,7rem) - 1rem);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
+  /* The panel gains a little inline padding and gives it straight back as a
+     negative margin, so the column still lines up where the grid put it while
+     the pinned block below has room to paint past its own text. Without it the
+     block's edge cuts the clear link in half against the scrollbar. */
+  .flt-pos-left .flt-panel{position:sticky;top:var(--flt-sticky-top,7rem);max-height:calc(100vh - var(--flt-sticky-top,7rem) - 1rem);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;padding-inline:12px;margin-inline:-12px}
   /* The panel scrolls its own groups once they outrun the viewport, so title,
      clear and ticked chips pin to the top of that scroller. Opaque, or the
-     group rows would read straight through it. The chips get a cap of their
-     own: a shopper with a dozen ticks on should still see a group or two
-     under them rather than a wall of chips. */
-  .flt-pos-left .flt-panel-top{position:sticky;top:0;z-index:2;background:var(--color-bg);padding-bottom:8px}
+     group rows would read straight through it. It bleeds back out over the
+     panel's padding so the paint clears the text on all four sides while the
+     text itself stays lined up with the groups underneath. The colour is the
+     page's own - the same expression html uses - because a site that sets
+     --color-page-bg leaves --color-bg on a shade nothing else is wearing, and
+     the block then reads as a stray tinted box. The chips get a cap of their
+     own: a shopper with a dozen ticks on should still see a group or two under
+     them rather than a wall of chips. */
+  .flt-pos-left .flt-panel-top{position:sticky;top:0;z-index:2;background:var(--color-page-bg,var(--color-bg));padding:10px 12px 12px;margin-inline:-12px}
   .flt-pos-left .flt-chips-top{max-height:9.5rem;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;margin-bottom:0}
 }
 @media (prefers-reduced-motion:reduce){
