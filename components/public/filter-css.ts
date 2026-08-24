@@ -38,6 +38,8 @@ export function shopFilterCss({ tabletBp, mobileBp }: Breakpoints): string {
 .flt-pos-top{grid-template-columns:1fr}
 .flt-panel{display:flex;flex-direction:column;gap:4px;min-width:0}
 .flt-pos-top .flt-panel{flex-direction:row;flex-wrap:wrap;gap:8px 28px;align-items:flex-start;padding-bottom:20px;border-bottom:1px solid var(--color-border)}
+.flt-panel-top{min-width:0}
+.flt-pos-top .flt-panel-top{flex:1 0 100%}
 .flt-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:6px}
 .flt-pos-top .flt-head{flex:1 0 100%}
 .flt-title{font-family:var(--display-family,Georgia,serif);font-size:18px;font-weight:600;margin:0;color:var(--color-fg);line-height:1.2}
@@ -64,13 +66,14 @@ export function shopFilterCss({ tabletBp, mobileBp }: Breakpoints): string {
 .flt-chip:hover{border-color:var(--color-text-muted)}
 .flt-chip-x{font-size:15px;line-height:1;color:var(--color-text-muted)}
 .flt-chip-label{overflow-wrap:anywhere}
-/* Two copies of the ticked-filter chips, one shown per layout: the panel's own
-   copy heads the filter list on desktop and inside the open sheet, while the
-   grid's copy is what a shopper sees on the sheet layouts with the panel shut.
-   Showing both at once would just say the same thing twice on one screen. */
-.flt-chips-panel{gap:6px;margin-bottom:12px}
-.flt-pos-top .flt-chips-panel{flex:1 0 100%}
-.flt-chips-panel .flt-chip{max-width:100%;padding:4px 9px;font-size:12px;line-height:1.25;text-align:left}
+/* Three copies of the ticked-filter chips, one shown per layout: the top copy
+   rides the panel's pinned head on desktop, the panel copy heads the sheet's
+   scrolling body on the sheet layouts, and the grid's copy is what a shopper
+   sees on those layouts with the sheet shut. Showing two at once would just
+   say the same thing twice on one screen. */
+.flt-chips-top{gap:6px;margin-bottom:10px}
+.flt-chips-top .flt-chip{max-width:100%;padding:4px 9px;font-size:12px;line-height:1.25;text-align:left}
+.flt-chips-panel{display:none}
 .flt-chips-title{flex:1 0 100%;margin:0;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--color-text-secondary)}
 .flt-chip-group{font-size:11px;color:var(--color-text-secondary)}
 .flt-chips-results{display:none}
@@ -117,8 +120,13 @@ export function shopFilterCss({ tabletBp, mobileBp }: Breakpoints): string {
   .flt-panel{gap:0}
   .flt-pos-top .flt-panel{flex-direction:column;gap:0;padding-bottom:0;border-bottom:0}
   .flt-chips-results{display:flex}
-  .flt-chips-panel{gap:8px;margin:12px 0 4px}
-  .flt-chips-panel .flt-chip{padding:9px 13px;font-size:13px}
+  /* The pinned head is a desktop idea: here the drawer is a sheet, so the
+     wrapper steps out of the way and the sheet's own copy of the chips - the
+     one that scrolls with the groups - is the one on screen. */
+  .flt-panel-top{display:contents}
+  .flt-chips-top{display:none}
+  .flt-chips-panel{display:flex;gap:8px;margin:12px 0 4px}
+  .flt-chips-panel .flt-chip{max-width:100%;padding:9px 13px;font-size:13px;line-height:1.25;text-align:left}
   .flt-fab{position:fixed;left:50%;bottom:calc(18px + env(safe-area-inset-bottom));transform:translateX(-50%);z-index:1200;display:inline-flex;align-items:center;gap:8px;padding:12px 20px;font-size:14px;font-weight:600;color:var(--color-fg);background:var(--color-surface);border:1px solid var(--color-border);border-radius:999px;cursor:pointer;line-height:1;box-shadow:0 4px 18px rgb(0 0 0/.22)}
   .flt-fab-icon{width:15px;height:15px}
   .flt-fab-badge{display:inline-flex;align-items:center;justify-content:center;min-width:19px;height:19px;padding:0 5px;font-size:11px;font-weight:700;color:var(--color-primary-contrast,#fff);background:var(--color-primary);border-radius:999px}
@@ -163,6 +171,13 @@ export function shopFilterCss({ tabletBp, mobileBp }: Breakpoints): string {
 }
 @media (min-width:calc(${tabletBp} + 1px)){
   .flt-pos-left .flt-panel{position:sticky;top:var(--flt-sticky-top,7rem);max-height:calc(100vh - var(--flt-sticky-top,7rem) - 1rem);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
+  /* The panel scrolls its own groups once they outrun the viewport, so title,
+     clear and ticked chips pin to the top of that scroller. Opaque, or the
+     group rows would read straight through it. The chips get a cap of their
+     own: a shopper with a dozen ticks on should still see a group or two
+     under them rather than a wall of chips. */
+  .flt-pos-left .flt-panel-top{position:sticky;top:0;z-index:2;background:var(--color-bg);padding-bottom:8px}
+  .flt-pos-left .flt-chips-top{max-height:9.5rem;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;margin-bottom:0}
 }
 @media (prefers-reduced-motion:reduce){
   .flt-drawer,.flt-drawer.is-open,.flt-scrim,.flt-chevron{transition:none}

@@ -652,17 +652,19 @@ export function FilterShell({ groups, matrix, variations = EMPTY_VARIATIONS, swa
 
   const count = (filterId: string, groupId: string) => facetCount(filterId, groupId, matrixEntries, selected)
 
-  // The ticked filters as removable chips. Two placements, one list:
-  // - `panel` sits at the very top of the panel, above every group, so what is
-  //   already on is readable without scrolling the groups or opening them. It
-  //   carries the group name on each chip, because the same label ("Black")
+  // The ticked filters as removable chips. Three placements, one list:
+  // - `top` sits in the panel's pinned head on desktop, under the title and its
+  //   clear, so what is already on stays put while the groups scroll past.
+  // - `panel` is the same list inside the sheet's scrolling body, which is what
+  //   the tablet and phone layouts show once the sheet is open.
+  //   Both carry the group name on each chip, because the same label ("Black")
   //   turns up in more than one group and out of context it says nothing.
   // - `results` sits above the grid, and is the only copy on screen on the
   //   sheet layouts, where the panel is shut behind the pill.
-  const chipRow = (variant: 'panel' | 'results') =>
+  const chipRow = (variant: 'top' | 'panel' | 'results') =>
     activeChips.length === 0 ? null : (
       <div className={`flt-chips flt-chips-${variant}`}>
-        {variant === 'panel' && <p className="flt-chips-title">Selected</p>}
+        {variant !== 'results' && <p className="flt-chips-title">Selected</p>}
         {activeChips.map(({ groupId, groupName, filterId, label }) => (
           <button
             key={filterId}
@@ -671,7 +673,7 @@ export function FilterShell({ groups, matrix, variations = EMPTY_VARIATIONS, swa
             aria-label={`Remove filter ${groupName}: ${label}`}
             onClick={() => toggle(groupId, filterId)}
           >
-            {variant === 'panel' && <span className="flt-chip-group">{groupName}</span>}
+            {variant !== 'results' && <span className="flt-chip-group">{groupName}</span>}
             <span className="flt-chip-label">{label}</span>
             <span className="flt-chip-x" aria-hidden>×</span>
           </button>
@@ -690,13 +692,22 @@ export function FilterShell({ groups, matrix, variations = EMPTY_VARIATIONS, swa
   return (
     <div className={`flt-wrap flt-pos-${position}`}>
       <aside className="flt-panel" aria-label="Filter products">
-        <div className="flt-head">
-          <h2 className="flt-title">Filter</h2>
-          {activeCount > 0 && (
-            <button type="button" className="flt-clear" onClick={() => setSelected(new Map())}>
-              Clear{activeCount > 1 ? ` (${activeCount})` : ''}
-            </button>
-          )}
+        {/* The panel's fixed head: the title, the clear, and the ticked chips.
+            On desktop this block pins to the top of the panel while the groups
+            below it scroll, so what is already on - and the way to take it off
+            again - never scrolls out of reach. On the sheet layouts the wrapper
+            unwraps (display:contents) and the sheet's own copy of the chips,
+            inside the scrolling body, is the one shown. */}
+        <div className="flt-panel-top">
+          <div className="flt-head">
+            <h2 className="flt-title">Filter</h2>
+            {activeCount > 0 && (
+              <button type="button" className="flt-clear" onClick={() => setSelected(new Map())}>
+                Clear{activeCount > 1 ? ` (${activeCount})` : ''}
+              </button>
+            )}
+          </div>
+          {chipRow('top')}
         </div>
 
         {/* Overlay-mode entry point: a floating pill, reachable however far the
