@@ -17,7 +17,11 @@ import type { CardItem } from '@/modules/shop/lib/card-template'
 // Lifted out of the block so the block and the server function behind on-demand
 // paging stamp cards through the SAME code. Page one and page nine differing by
 // a stray class would be a bug nobody notices until a shopper scrolls.
-export async function renderTaggedCards(template: PuckData | null, items: CardItem[], urlStyle: ProductUrlStyle) {
+// `eagerCount` matches shop's renderCards: how many cards at the front of this
+// list are above the fold, and so load their picture eagerly rather than lazily.
+// Page one of a grid passes its column count; the on-demand pages pass nothing,
+// because a page the shopper scrolled to is by definition already scrolled past.
+export async function renderTaggedCards(template: PuckData | null, items: CardItem[], urlStyle: ProductUrlStyle, eagerCount = 0) {
   const { getModuleLayoutPuckRscConfig } = await import('@/lib/puck/config.rsc')
   const config = getModuleLayoutPuckRscConfig('shopProductCard')
   // Every block registered for the card layout type, exactly as shop's own
@@ -30,7 +34,7 @@ export async function renderTaggedCards(template: PuckData | null, items: CardIt
   // requiresModules in the manifest, which is what stops this grid being updated
   // ahead of the shop that carries the helper.
   const withEdit = await withCardAdminEditHrefs(items)
-  return withEdit.map(({ product, ctx }) => (
+  return withEdit.map(({ product, ctx }, at) => (
     // Same wrapper shape as shop's renderCards: a div with a stretched link
     // sibling, so the carousel arrows and any overlay controls are real buttons
     // above the link rather than interactive content nested in an <a>.
@@ -42,7 +46,7 @@ export async function renderTaggedCards(template: PuckData | null, items: CardIt
           cannot hand back an address a ROOT-style shop no longer serves. */}
       <a className="shop-card-link" href={ctx.productHref ?? productHref(product.slug, urlStyle)} aria-label={product.name} />
       {template ? (
-        <Render config={config as any} data={injectShopProductCardEmbed(template, ctx, partTypes) as Data} />
+        <Render config={config as any} data={injectShopProductCardEmbed(template, at < eagerCount ? { ...ctx, eager: true } : ctx, partTypes) as Data} />
       ) : (
         <>
           <div className="shop-card-img">

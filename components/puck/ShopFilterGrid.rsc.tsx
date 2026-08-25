@@ -20,6 +20,7 @@ import { renderTaggedCards } from '@/modules/filters-for-shop/lib/tagged-cards'
 import { loadFilterGridCards } from '@/modules/filters-for-shop/lib/grid-cards-action'
 import { matchesSelection } from '@/modules/filters-for-shop/lib/filter-logic'
 import { preselectByGroup } from '@/modules/filters-for-shop/lib/preselect'
+import { packSwaps } from '@/modules/filters-for-shop/lib/swap-pack'
 import { shopFilterGridPuckComponent, type ShopFilterGridProps } from './ShopFilterGrid'
 
 // Server (RSC) half of Shop: Filters & Product Grid.
@@ -256,8 +257,9 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
     if (seenHere.size > 0) combosByProduct[productId] = [...seenHere]
   }
 
-  const swapsRecord: Record<string, Record<string, { image: string | null; href: string; sourceId: string }>> = {}
-  for (const [productId, perFilter] of swaps) swapsRecord[productId] = Object.fromEntries(perFilter)
+  // Folded for the wire, exactly as the variation index above is, and for the
+  // same reason - see lib/swap-pack.ts for what was in the 326 KB it replaces.
+  const swapIndex = packSwaps(swaps)
 
   // What the sort dropdown orders on. The price is the same figure the PRICE
   // filters band on, and the same one the card prints - the companion module's
@@ -316,6 +318,9 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
     template,
     renderIds.map((id) => itemById.get(id)).filter((item): item is CardItem => item != null),
     config.productUrlStyle,
+    // The opening row loads its pictures eagerly; the rest of the shelf stays
+    // lazy. Only on page one - a later page is one the shopper scrolled to.
+    page === 1 ? columns : 0,
   )
 
   return (
@@ -325,7 +330,7 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
         groups={offered}
         matrix={Object.fromEntries(matrix)}
         variations={{ filterIds: variationFilterIds, combos: comboTable, byProduct: combosByProduct }}
-        swaps={swapsRecord}
+        swaps={swapIndex}
         sortKeys={sortKeys}
         showSort={props.showSort !== 'no'}
         defaultSort={defaultSort}

@@ -6,6 +6,7 @@ import { applySelectionToParams, preselectByGroup, selectionFromParams } from '@
 import { isImageSwatch, type FltControlType } from '@/modules/filters-for-shop/lib/types'
 import { pageHref } from '@/modules/shop/lib/page-href'
 import { FLT_SORT_OPTIONS, FLT_SORT_RECOMMENDED_PARAM, isFltSortValue, sortProductIds, sortValueFromParam, type FltSortKey, type FltSortValue } from '@/modules/filters-for-shop/lib/sort'
+import { EMPTY_SWAP_INDEX, unpackSwaps, type FltSwapIndex } from '@/modules/filters-for-shop/lib/swap-pack'
 import type { FltSwap } from '@/modules/filters-for-shop/lib/db/matching'
 
 // The serialisable shape the RSC half hands over: no rules, no positions - just
@@ -38,7 +39,11 @@ export type FilterShellProps = {
   variations?: FltVariationIndex
   // product id -> filter id -> the variation the card borrows when that filter
   // is ticked: its photo, and its own deep link (which pre-selects the options).
-  swaps: Record<string, Record<string, FltSwap>>
+  //
+  // Folded rather than spelled out, the same way `variations` is: on a real shelf
+  // the spelled-out version was a third of a megabyte of repeated filter ids,
+  // repeated image folders and repeated product slugs. See lib/swap-pack.ts.
+  swaps: FltSwapIndex
   // product id -> the figures the sort dropdown orders on. Resolved server-side
   // from the same numbers the cards print. Absent entries simply never sort.
   sortKeys: Record<string, FltSortKey>
@@ -213,7 +218,7 @@ function dressCard(el: HTMLElement, swapList: FltSwap[], swapImages: boolean, pr
 // suppressed at the call site.
 const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect
 
-export function FilterShell({ groups, matrix, variations = EMPTY_VARIATIONS, swaps, sortKeys, showSort, defaultSort = '', serverOrder, columns, position, showCounts, swapImages, preselectOnClick, tabletBp, children, paginate = 'none', pageSize = 24, moreLabel, preselect, loadCards, renderedIds, page: serverPage }: FilterShellProps) {
+export function FilterShell({ groups, matrix, variations = EMPTY_VARIATIONS, swaps: swapIndex = EMPTY_SWAP_INDEX, sortKeys, showSort, defaultSort = '', serverOrder, columns, position, showCounts, swapImages, preselectOnClick, tabletBp, children, paginate = 'none', pageSize = 24, moreLabel, preselect, loadCards, renderedIds, page: serverPage }: FilterShellProps) {
   const gridRef = useRef<HTMLDivElement>(null)
   const resultsRef = useRef<HTMLDivElement>(null)
   const drawerRef = useRef<HTMLDivElement>(null)
@@ -373,6 +378,10 @@ export function FilterShell({ groups, matrix, variations = EMPTY_VARIATIONS, swa
     }
     return out
   }, [variations])
+  // The per-filter swaps, read back the same way and for the same reason. Once
+  // per mount, into the product -> filter -> swap lookup the dressing pass below
+  // has always done.
+  const swaps = useMemo(() => unpackSwaps(swapIndex), [swapIndex])
   const matrixEntries = useMemo<FltMatrixEntry[]>(
     () => Object.entries(matrix).map(([productId, filterIds]) => [productId, filterIds, combosByProduct.get(productId)]),
     [matrix, combosByProduct],
@@ -489,7 +498,7 @@ export function FilterShell({ groups, matrix, variations = EMPTY_VARIATIONS, swa
       el.toggleAttribute('data-flt-hidden', !ok)
       const swapFilterIds = ok ? pickSwapFilters(matched, selected, orderedGroups) : []
       const swapList = swapFilterIds
-        .map((id) => swaps[productId]?.[id])
+        .map((id) => swaps.get(productId)?.get(id))
         .filter((s): s is FltSwap => s != null)
       dressCard(el, swapList, swapImages, preselectOnClick)
     }
