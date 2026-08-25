@@ -51,6 +51,7 @@ export function FiltersScreen() {
   const [loaded, setLoaded] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [copyProgress, setCopyProgress] = useState<string | null>(null)
   const [newGroupName, setNewGroupName] = useState('')
   const [newGroupControl, setNewGroupControl] = useState<FltControlType>('SWATCH')
   const [newGroupKind, setNewGroupKind] = useState<'VALUES' | 'PRICE'>('VALUES')
@@ -125,6 +126,47 @@ export function FiltersScreen() {
     await send(`${BASE}/groups/reorder`, 'POST', { ids: next.map((g) => g.id) })
   }
 
+  // Loops the batched backfill until it reports done, narrating progress as it
+  // goes. Plain fetches rather than send(): reloading the whole screen after
+  // every batch would make a long backfill feel broken, so the list is refreshed
+  // once at the end instead.
+  async function makeSwatchCopies() {
+    setBusy(true)
+    setError(null)
+    setCopyProgress('Working…')
+    let afterId: string | undefined
+    let made = 0
+    try {
+      for (;;) {
+        const res = await fetch(`${BASE}/generate-swatch-copies`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(afterId ? { afterId } : {}),
+        })
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}))
+          setError((data as { error?: string }).error ?? 'Something went wrong.')
+          setCopyProgress(null)
+          return
+        }
+        const data = (await res.json()) as { made: number; skipped: number; lastId?: string; remaining: number; done: boolean }
+        made += data.made
+        setCopyProgress(`${made} done so far - ${data.remaining} still to look at…`)
+        if (data.done) break
+        afterId = data.lastId
+      }
+      setCopyProgress(made === 0
+        ? 'Nothing needed one - every picture filter already has its copies.'
+        : `Done - copies made for ${made} ${made === 1 ? 'filter' : 'filters'}.`)
+      await load()
+    } catch {
+      setError('Something went wrong.')
+      setCopyProgress(null)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <div>
       <div className="page-header"><h1 className="page-title">Shop filters</h1></div>
@@ -175,6 +217,19 @@ export function FiltersScreen() {
           )}
           <button className="btn btn-primary" disabled={busy || !newGroupName.trim()} onClick={() => void addGroup()}>Add group</button>
         </div>
+      </section>
+
+      <section style={{ ...card, marginBottom: '1.5rem' }}>
+        <h2 style={{ fontSize: '0.9375rem', margin: '0 0 0.75rem' }}>Smaller copies for the shop</h2>
+        <p style={{ margin: '0 0 0.75rem', fontSize: '0.8125rem', color: 'var(--color-text-secondary)' }}>
+          Filters that show a picture rather than a plain colour borrow that picture from a product, where it is
+          kept big enough for the 3D views. In the filter list it is drawn as a dot the size of a full stop, so
+          shoppers were downloading whole fabric photographs to see a row of circles. This makes small copies for
+          the filter bar to use instead. New pictures get theirs when you pick them; this catches up the ones from
+          before. Safe to press any time.
+        </p>
+        <button className="btn btn-secondary" disabled={busy} onClick={() => void makeSwatchCopies()}>Make copies</button>
+        {copyProgress && <span style={{ marginLeft: '0.75rem', fontSize: '0.8125rem', color: 'var(--color-text-secondary)' }} role="status">{copyProgress}</span>}
       </section>
 
       {!loaded ? null : groups.length === 0 ? (
@@ -373,7 +428,10 @@ function FilterRow({ group, filter, catalogue, busy, send, canMoveUp, canMoveDow
   return (
     <div style={{ border: '1px solid var(--color-border)', borderRadius: 10, padding: '0.6rem 0.75rem', background: 'var(--color-bg-subtle)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-        <SwatchDot swatch={filter.swatch} />
+        {/* The tiny copy where there is one: this dot is 16px, and an admin
+            list of ninety filters has no more use for full-size fabric
+            photography than the storefront does. */}
+        <SwatchDot swatch={filter.swatchTiny ?? filter.swatchSmall ?? filter.swatch} />
         {renaming ? (
           <>
             <input

@@ -18,7 +18,7 @@ export async function listGroups(): Promise<FltGroup[]> {
       SELECT "id", "name", "slug", "control_type", "kind", "position" FROM "flt_groups" ORDER BY "position", "created_at"
     `,
     prisma.$queryRaw<Record<string, unknown>[]>`
-      SELECT "id", "group_id", "label", "slug", "swatch", "price_min", "price_max", "position" FROM "flt_filters" ORDER BY "position", "created_at"
+      SELECT "id", "group_id", "label", "slug", "swatch", "swatch_small", "swatch_tiny", "price_min", "price_max", "position" FROM "flt_filters" ORDER BY "position", "created_at"
     `,
     prisma.$queryRaw<Record<string, unknown>[]>`
       SELECT "id", "filter_id", "source", "option_name", "value_label" FROM "flt_filter_rules" ORDER BY "option_name", "value_label"
@@ -48,6 +48,8 @@ export async function listGroups(): Promise<FltGroup[]> {
       label: row.label as string,
       slug: row.slug as string,
       swatch: (row.swatch as string | null) ?? null,
+      swatchSmall: (row.swatch_small as string | null) ?? null,
+      swatchTiny: (row.swatch_tiny as string | null) ?? null,
       position: row.position as number,
       priceMin: toNumberOrNull(row.price_min),
       priceMax: toNumberOrNull(row.price_max),
@@ -123,13 +125,23 @@ export async function reorderGroups(ids: string[]): Promise<void> {
   `
 }
 
-export async function getFilter(id: string): Promise<{ id: string; groupId: string; label: string; slug: string } | null> {
+// The swatch and its copies ride along so a save can tell a re-pick of the same
+// picture (keep the copies) from a new one (make fresh copies).
+export async function getFilter(id: string): Promise<{ id: string; groupId: string; label: string; slug: string; swatch: string | null; swatchSmall: string | null; swatchTiny: string | null } | null> {
   const rows = await prisma.$queryRaw<Record<string, unknown>[]>`
-    SELECT "id", "group_id", "label", "slug" FROM "flt_filters" WHERE "id" = ${id} LIMIT 1
+    SELECT "id", "group_id", "label", "slug", "swatch", "swatch_small", "swatch_tiny" FROM "flt_filters" WHERE "id" = ${id} LIMIT 1
   `
   const row = rows[0]
   if (!row) return null
-  return { id: row.id as string, groupId: row.group_id as string, label: row.label as string, slug: row.slug as string }
+  return {
+    id: row.id as string,
+    groupId: row.group_id as string,
+    label: row.label as string,
+    slug: row.slug as string,
+    swatch: (row.swatch as string | null) ?? null,
+    swatchSmall: (row.swatch_small as string | null) ?? null,
+    swatchTiny: (row.swatch_tiny as string | null) ?? null,
+  }
 }
 
 export async function filterSlugTaken(groupId: string, slug: string, excludeId: string): Promise<boolean> {
@@ -145,10 +157,10 @@ export async function ensureUniqueFilterSlug(groupId: string, base: string, excl
   return slug
 }
 
-export async function createFilter(fields: { groupId: string; label: string; slug: string; swatch: string | null }): Promise<{ id: string }> {
+export async function createFilter(fields: { groupId: string; label: string; slug: string; swatch: string | null; swatchSmall?: string | null; swatchTiny?: string | null }): Promise<{ id: string }> {
   const rows = await prisma.$queryRaw<{ id: string }[]>`
-    INSERT INTO "flt_filters" ("group_id", "label", "slug", "swatch", "position")
-    VALUES (${fields.groupId}, ${fields.label}, ${fields.slug}, ${fields.swatch},
+    INSERT INTO "flt_filters" ("group_id", "label", "slug", "swatch", "swatch_small", "swatch_tiny", "position")
+    VALUES (${fields.groupId}, ${fields.label}, ${fields.slug}, ${fields.swatch}, ${fields.swatchSmall ?? null}, ${fields.swatchTiny ?? null},
       (SELECT COALESCE(MAX("position"), -1) + 1 FROM "flt_filters" WHERE "group_id" = ${fields.groupId}))
     RETURNING "id"
   `
@@ -157,14 +169,16 @@ export async function createFilter(fields: { groupId: string; label: string; slu
   return { id: row.id }
 }
 
-export async function updateFilter(id: string, fields: { label?: string; slug?: string; swatch?: string | null; priceMin?: number | null; priceMax?: number | null }): Promise<void> {
-  // swatch and the price bounds are tri-state: undefined leaves them alone,
-  // null clears them.
+export async function updateFilter(id: string, fields: { label?: string; slug?: string; swatch?: string | null; swatchSmall?: string | null; swatchTiny?: string | null; priceMin?: number | null; priceMax?: number | null }): Promise<void> {
+  // The swatch, its copies and the price bounds are tri-state: undefined leaves
+  // them alone, null clears them.
   await prisma.$executeRaw`
     UPDATE "flt_filters" SET
       "label" = COALESCE(${fields.label ?? null}, "label"),
       "slug" = COALESCE(${fields.slug ?? null}, "slug"),
       "swatch" = CASE WHEN ${fields.swatch !== undefined} THEN ${fields.swatch ?? null} ELSE "swatch" END,
+      "swatch_small" = CASE WHEN ${fields.swatchSmall !== undefined} THEN ${fields.swatchSmall ?? null} ELSE "swatch_small" END,
+      "swatch_tiny" = CASE WHEN ${fields.swatchTiny !== undefined} THEN ${fields.swatchTiny ?? null} ELSE "swatch_tiny" END,
       "price_min" = CASE WHEN ${fields.priceMin !== undefined} THEN ${fields.priceMin ?? null}::numeric ELSE "price_min" END,
       "price_max" = CASE WHEN ${fields.priceMax !== undefined} THEN ${fields.priceMax ?? null}::numeric ELSE "price_max" END
     WHERE "id" = ${id}

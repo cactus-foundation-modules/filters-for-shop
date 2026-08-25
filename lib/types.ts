@@ -20,6 +20,13 @@ export type FltFilter = {
   label: string
   slug: string
   swatch: string | null
+  // Shrunk copies of a picture swatch, made by core's resizer when the filter is
+  // saved. The panel prefers the tiny one for its 14px dots and 56px tiles and
+  // falls back through the small copy to `swatch`, so a filter with neither
+  // draws exactly what it drew before the copies existed. Both null on a colour
+  // swatch, which needs no shrinking.
+  swatchSmall: string | null
+  swatchTiny: string | null
   position: number
   // Band bounds for filters in a PRICE group: min inclusive, max exclusive,
   // null = open-ended. Always null on VALUES-group filters.

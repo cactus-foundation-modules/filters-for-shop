@@ -472,7 +472,10 @@ function CollectionCard({ collection, groups, sources, adminPath, busy, send, op
                           color: on ? 'var(--color-on-primary, #fff)' : 'var(--color-text)',
                         }}
                       >
-                        <SwatchDot swatch={filter.swatch} />
+                        {/* The tiny copy where there is one: this dot is 16px, and an admin
+                            list of ninety filters has no more use for full-size fabric
+                            photography than the storefront does. */}
+                        <SwatchDot swatch={filter.swatchTiny ?? filter.swatchSmall ?? filter.swatch} />
                         {filter.label}
                       </button>
                     )

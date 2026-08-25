@@ -3,6 +3,8 @@ import { z } from 'zod'
 import { requireShopUser } from '@/modules/shop/lib/access'
 import { slugify } from '@/modules/shop/lib/slug'
 import { createFilter, ensureUniqueFilterSlug, getGroup, setFilterRules } from '@/modules/filters-for-shop/lib/db/filters'
+import { generateSwatchCopies } from '@/modules/filters-for-shop/lib/swatch-renditions'
+import { isImageSwatch } from '@/modules/filters-for-shop/lib/types'
 
 const PostBody = z.object({
   groupId: z.string().min(1),
@@ -27,11 +29,18 @@ export async function POST(request: Request) {
   if (!(await getGroup(parsed.data.groupId))) return NextResponse.json({ error: 'Group not found' }, { status: 404 })
 
   const slug = await ensureUniqueFilterSlug(parsed.data.groupId, slugify(label) || 'filter')
+  const swatch = parsed.data.swatch?.trim() || null
+  // The copies the storefront panel actually draws. Null for a colour swatch or
+  // a picture on some other host, which just means the panel keeps drawing the
+  // url it was given.
+  const copies = swatch && isImageSwatch(swatch) ? await generateSwatchCopies(swatch) : { small: null, tiny: null }
   const created = await createFilter({
     groupId: parsed.data.groupId,
     label,
     slug,
-    swatch: parsed.data.swatch?.trim() || null,
+    swatch,
+    swatchSmall: copies.small,
+    swatchTiny: copies.tiny,
   })
   if (parsed.data.rules && parsed.data.rules.length > 0) {
     await setFilterRules(created.id, parsed.data.rules)

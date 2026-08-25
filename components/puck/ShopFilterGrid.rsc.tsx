@@ -111,21 +111,32 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
   // without them the cards here carry no contributed variation photos, so the
   // carousel island never mounts with anything the filter's sourceId constraint
   // could match - the very photos the swap borrows.
-  const [{ matrix, combos, swaps }, fromPrices, cardExtras, allCategories, categoryIdsByProduct, mediaByProduct, tagIdsByProduct] = await Promise.all([
+  const [{ matrix, combos, swaps }, fromPrices, allCategories, categoryIdsByProduct] = await Promise.all([
     getProductFilterMatches(productIds, groups, config.productUrlStyle),
     resolveCardFromPrices(productIds),
-    resolveShopCardExtras(productIds),
     wantCategoryFilter ? listCategories() : Promise.resolve([]),
     wantCategoryFilter ? getProductCategoryIdsForProducts(productIds) : Promise.resolve(new Map<string, string[]>()),
-    getProductMediaForProducts(productIds),
-    getProductTagIdsForProducts(productIds),
   ])
 
   const { tagById, tagsById } = buildTagMaps(tags)
-  const items: CardItem[] = products.map((product) => ({
-    product,
-    ctx: buildCardContext(product, mediaByProduct.get(product.id) ?? [], tagById, tagIdsByProduct.get(product.id) ?? [], config.currencySymbol, config, fromPrices.get(product.id) ?? null, cardExtras.get(product.id), tagsById),
-  }))
+
+  // The figure the card would print, for every product on the shelf.
+  //
+  // Read out of a context built with no pictures, no tags and no contributed
+  // extras, because the price never depends on any of them: priceView() reads
+  // the product's own columns and the shop's tax display, and the "from" price
+  // is handed in. What that buys is the right to fetch the pictures, tags and
+  // contributed extras for the RENDERED cards only, further down - which on a
+  // paged category page is two dozen products rather than several hundred.
+  //
+  // Measured on the live catalogue this matters for: a category of 217 listings
+  // was pulling 7,900 variations, 23,000 variant values and 10,000 variation
+  // photographs through this block on every uncached render, to draw 24 cards.
+  const priceOf = new Map<string, number>()
+  for (const product of products) {
+    const ctx = buildCardContext(product, [], tagById, [], config.currencySymbol, config, fromPrices.get(product.id) ?? null, undefined, tagsById)
+    priceOf.set(product.id, Number(ctx.fromPrice ?? ctx.prices.now))
+  }
 
   // PRICE groups are matched right here, not in SQL: the band compares against
   // the same figure the card prints - the companion module's from-price when
@@ -136,14 +147,14 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
     .filter((g) => g.kind === 'PRICE')
     .flatMap((g) => g.filters.filter((f) => f.priceMin !== null || f.priceMax !== null))
   if (priceFilters.length > 0) {
-    for (const { product, ctx } of items) {
-      const price = Number(ctx.fromPrice ?? ctx.prices.now)
+    for (const productId of productIds) {
+      const price = priceOf.get(productId) ?? Number.NaN
       if (!Number.isFinite(price)) continue
       for (const f of priceFilters) {
         if (!priceInBand(price, f.priceMin, f.priceMax)) continue
-        const list = matrix.get(product.id) ?? []
+        const list = matrix.get(productId) ?? []
         list.push(f.id)
-        matrix.set(product.id, list)
+        matrix.set(productId, list)
       }
     }
   }
@@ -207,7 +218,12 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
       filters: group.filters
         .filter((f) => (group.kind === 'PRICE' ? f.priceMin !== null || f.priceMax !== null : f.rules.length > 0))
         .filter((f) => !settings.hideEmptyFilters || matchedFilterIds.has(f.id) || preselectedIds.has(f.id))
-        .map((f) => ({ id: f.id, label: f.label, slug: f.slug, swatch: f.swatch })),
+        // Collapsed to one url here rather than shipping all three: a picture
+        // swatch is drawn as a 14px dot or a 56px tile in this panel, so the
+        // tiny copy is the right file and the full-size photograph exists for
+        // the 3D module, not for this. Falls back through the small copy to the
+        // original, which is exactly what every filter drew before the copies.
+        .map((f) => ({ id: f.id, label: f.label, slug: f.slug, swatch: f.swatchTiny ?? f.swatchSmall ?? f.swatch })),
     }))
     .filter((group) => group.filters.length >= 2 || group.filters.some((f) => preselectedIds.has(f.id)))
   // Category leads the panel: it is the page's own structure, and the widest
@@ -266,8 +282,8 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
   // from-price when there is one, else shop's own - so a sorted grid can never
   // disagree with the numbers on screen.
   const sortKeys: Record<string, FltSortKey> = {}
-  for (const { product, ctx } of items) {
-    const price = Number(ctx.fromPrice ?? ctx.prices.now)
+  for (const product of products) {
+    const price = priceOf.get(product.id) ?? Number.NaN
     sortKeys[product.id] = {
       name: product.name,
       price: Number.isFinite(price) ? price : null,
@@ -287,7 +303,7 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
   // Blank (or absent) is a layout saved before the field existed, not a request
   // for the shop's own order - Recommended says its own name, `recommended`.
   const defaultSort = sortValueFromParam(props.defaultSort || 'best-selling') ?? ''
-  const serverOrder = items.map(({ product }) => product.id)
+  const serverOrder = productIds
   const ordered = defaultSort ? sortProductIds(serverOrder, sortKeys, defaultSort) : serverOrder
 
   // Which products get a card rendered into the page. Upfront, all of them, as
@@ -310,13 +326,34 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
     ? ordered.filter((id) => matchesSelection(matrix.get(id) ?? [], startSelection, combos.get(id)))
     : ordered
   const renderIds = onDemand ? matchingOrdered.slice(from, from + pageSize) : ordered
-  // Re-ordering the products, not finished cards: the per-product media, price
-  // and contributed-photo work inside the context build is most of the cost of a
-  // card, and slicing after the fact would have paid all of it.
-  const itemById = new Map(items.map((item) => [item.product.id, item]))
+  // The pictures, tags and contributed extras - and ONLY for the cards this
+  // render is going to draw. Everything above got by on the product rows and
+  // the "from" prices, so a paged grid no longer reads the whole category's
+  // variation graph to show its first two dozen tiles. Upfront rendering asks
+  // for every product because it draws every product, which is the old
+  // behaviour exactly.
+  //
+  // Slicing the PRODUCTS rather than finished cards, and fetching after the
+  // slice rather than before: the per-product media and contributed-photo work
+  // is most of the cost of a card, and doing it up front paid all of it for
+  // cards nobody was going to see.
+  const cardIds = onDemand ? renderIds : productIds
+  const [cardExtras, mediaByProduct, tagIdsByProduct] = await Promise.all([
+    resolveShopCardExtras(cardIds),
+    getProductMediaForProducts(cardIds),
+    getProductTagIdsForProducts(cardIds),
+  ])
+  const productById = new Map(products.map((product) => [product.id, product]))
+  const renderItems: CardItem[] = renderIds
+    .map((id) => productById.get(id))
+    .filter((product): product is (typeof products)[number] => product != null)
+    .map((product) => ({
+      product,
+      ctx: buildCardContext(product, mediaByProduct.get(product.id) ?? [], tagById, tagIdsByProduct.get(product.id) ?? [], config.currencySymbol, config, fromPrices.get(product.id) ?? null, cardExtras.get(product.id), tagsById),
+    }))
   const sortedCards = await renderTaggedCards(
     template,
-    renderIds.map((id) => itemById.get(id)).filter((item): item is CardItem => item != null),
+    renderItems,
     config.productUrlStyle,
     // The opening row loads its pictures eagerly; the rest of the shelf stays
     // lazy. Only on page one - a later page is one the shopper scrolled to.

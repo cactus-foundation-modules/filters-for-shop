@@ -22,6 +22,14 @@ export async function filtersMediaReferenceRewriter(change: MediaReferenceChange
     await prisma.$executeRaw`
       UPDATE "flt_filters" SET "swatch" = ${newUrl} WHERE "swatch" = ${urlFrom}
     `
+    // Each shrunk copy is its own library item with its own url, so a move or an
+    // optimise of THOSE files has to land here the same way.
+    await prisma.$executeRaw`
+      UPDATE "flt_filters" SET "swatch_small" = ${newUrl} WHERE "swatch_small" = ${urlFrom}
+    `
+    await prisma.$executeRaw`
+      UPDATE "flt_filters" SET "swatch_tiny" = ${newUrl} WHERE "swatch_tiny" = ${urlFrom}
+    `
     await prisma.$executeRaw`
       UPDATE "flt_collections" SET "og_image" = ${newUrl} WHERE "og_image" = ${urlFrom}
     `
