@@ -223,6 +223,9 @@ export function shopFilterCss({ tabletBp, mobileBp }: Breakpoints): string {
 /* Pager. Only rendered when the block asks for paging, so none of this reaches
    a grid that is not paged. Targets are 44px so a thumb can hit them. */
 .flt-pager{display:flex;flex-direction:column;align-items:center;gap:12px;margin-top:28px}
+.flt-cards-failed{margin:16px 0 0;font-size:13px;color:var(--color-text-muted);text-align:center}
+.flt-cards-retry{appearance:none;background:none;border:0;padding:0;font:inherit;color:var(--color-primary);text-decoration:underline;cursor:pointer}
+.flt-cards-retry:focus-visible{outline:2px solid var(--color-primary);outline-offset:2px}
 .flt-pager-more{min-height:44px;padding:0 26px;border:1px solid var(--color-border);border-radius:9999px;background:var(--color-surface);color:var(--color-fg);font:inherit;font-weight:600;font-size:15px;cursor:pointer;transition:background .12s ease}
 .flt-pager-more:hover{background:var(--color-bg-subtle)}
 .flt-pager-more:focus-visible{outline:2px solid var(--color-primary);outline-offset:2px}

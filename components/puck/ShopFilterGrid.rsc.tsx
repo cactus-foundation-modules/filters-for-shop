@@ -1,18 +1,12 @@
 import { connection } from 'next/server'
-import { Render } from '@puckeditor/core/rsc'
-import type { Data } from '@puckeditor/core'
 import { listProducts, getProductMediaForProducts, getProductTagIdsForProducts, HARD_MAX_PER_PAGE } from '@/modules/shop/lib/db'
 import { listTags, resolveCategoryProductFilter, listCategories, getProductCategoryIdsForProducts } from '@/modules/shop/lib/db'
 import { getShopConfigCached } from '@/modules/shop/lib/config'
 import { getShopBreakpoints } from '@/modules/shop/lib/breakpoints'
-import { resolveCardTemplate, buildCardContext, buildTagMaps, withCardAdminEditHrefs } from '@/modules/shop/lib/card-template'
+import { resolveCardTemplate, buildCardContext, buildTagMaps } from '@/modules/shop/lib/card-template'
 import { resolveCardFromPrices } from '@/modules/shop/lib/card-price'
 import { resolveShopCardExtras } from '@/modules/shop/lib/card-media'
-import { injectShopProductCardEmbed } from '@/modules/shop/lib/inject-part-context'
-import { formatMoney } from '@/modules/shop/lib/money'
-import { productHref, type ProductUrlStyle } from '@/modules/shop/lib/product-url'
 import { shopCardCss } from '@/modules/shop/components/puck/parts/card-parts'
-import type { PuckData } from '@/modules/shop/lib/types'
 import type { CardItem } from '@/modules/shop/lib/card-template'
 import { listGroups } from '@/modules/filters-for-shop/lib/db/filters'
 import { getSettings } from '@/modules/filters-for-shop/lib/db/settings'
@@ -22,6 +16,10 @@ import { CATEGORY_GROUP_ID, CATEGORY_GROUP_SLUG, CATEGORY_GROUP_NAME, buildBranc
 import { sortProductIds, sortValueFromParam, type FltSortKey } from '@/modules/filters-for-shop/lib/sort'
 import { FilterShell, type FltPublicGroup } from '@/modules/filters-for-shop/components/public/FilterShell'
 import { shopFilterCss } from '@/modules/filters-for-shop/components/public/filter-css'
+import { renderTaggedCards } from '@/modules/filters-for-shop/lib/tagged-cards'
+import { loadFilterGridCards } from '@/modules/filters-for-shop/lib/grid-cards-action'
+import { matchesSelection } from '@/modules/filters-for-shop/lib/filter-logic'
+import { preselectByGroup } from '@/modules/filters-for-shop/lib/preselect'
 import { shopFilterGridPuckComponent, type ShopFilterGridProps } from './ShopFilterGrid'
 
 // Server (RSC) half of Shop: Filters & Product Grid.
@@ -29,67 +27,22 @@ import { shopFilterGridPuckComponent, type ShopFilterGridProps } from './ShopFil
 // Every matching product is rendered up front with the shop's own Product Card
 // layout, then the client shell shows, hides and re-dresses them as filters are
 // ticked. Cards stay pixel-identical to every other shop grid and filtering is
-// instant, at the cost of rendering the whole (capped) result set once. Suits
-// the catalogue sizes this platform is aimed at; a shop with thousands of
-// products wants a paginated, server-filtered grid instead.
+// instant, at the cost of rendering the whole (capped) result set once.
 //
-// The card anchor below deliberately mirrors shop's own renderCards rather than
-// calling it: the only difference is the data-flt-product tag the shell hangs
-// its filtering and re-dressing on, and shop's helper has nowhere to hang it.
-// Template resolution, context building and the injected embed all still come
-// from shop, so a change to the card design lands here too.
-
-async function renderTaggedCards(template: PuckData | null, items: CardItem[], urlStyle: ProductUrlStyle) {
-  const { getModuleLayoutPuckRscConfig } = await import('@/lib/puck/config.rsc')
-  const config = getModuleLayoutPuckRscConfig('shopProductCard')
-  // Every block registered for the card layout type, exactly as shop's own
-  // renderCards passes - without it a companion module's card part renders its
-  // editor skeleton on the live grid.
-  const partTypes = config.categories.blocks.components
-  // The signed-in admin's shortcut into each product's editor, resolved once for
-  // the whole grid by shop (lib/admin-edit.ts) and read by shop's own Card: Name
-  // part. A shopper gets the items back untouched. Requires shop 0.1.295 - see
-  // requiresModules in the manifest, which is what stops this grid being updated
-  // ahead of the shop that carries the helper.
-  const withEdit = await withCardAdminEditHrefs(items)
-  return withEdit.map(({ product, ctx }) => (
-    // Same wrapper shape as shop's renderCards: a div with a stretched link
-    // sibling, so the carousel arrows and any overlay controls are real buttons
-    // above the link rather than interactive content nested in an <a>.
-    <div key={product.id} className="shop-card" data-flt-product={product.id}>
-      {/* ctx.productHref carries the shop's chosen product URL style, resolved
-          by shop's buildCardContext - same source of truth as shop's own grids.
-          The fallback keeps this grid linking correctly beside a shop build old
-          enough not to resolve it, and is built through the same helper so it
-          cannot hand back an address a ROOT-style shop no longer serves. */}
-      <a className="shop-card-link" href={ctx.productHref ?? productHref(product.slug, urlStyle)} aria-label={product.name} />
-      {template ? (
-        <Render config={config as any} data={injectShopProductCardEmbed(template, ctx, partTypes) as Data} />
-      ) : (
-        <>
-          <div className="shop-card-img">
-            {ctx.image && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={ctx.image.url} alt={ctx.image.alt} />
-            )}
-          </div>
-          <h3 className="shop-card-name">{product.name}</h3>
-          <div className="shop-card-pricerow">
-            {ctx.fromPrice != null ? (
-              <span className="shop-card-price">{ctx.fromPriceVaries ? 'From ' : ''}{formatMoney(ctx.fromPrice, ctx.currencySymbol)}</span>
-            ) : (
-              <>
-                <span className="shop-card-price">{formatMoney(ctx.prices.now, ctx.currencySymbol)}</span>
-                {ctx.prices.was && <span className="shop-card-compare">{formatMoney(ctx.prices.was, ctx.currencySymbol)}</span>}
-              </>
-            )}
-          </div>
-        </>
-      )}
-    </div>
-  ))
-}
-
+// That cost is real and was measured rather than guessed: a 432-product filter
+// collection shipped 14.6 MB, three quarters of it the flight payload for cards
+// nobody scrolled to. So `pageLoad: 'ondemand'` renders the FIRST PAGE only and
+// leaves the rest to lib/grid-cards-action - the shell already holds the whole
+// matrix (interned, and small), so it can work out its own window and ask for
+// it. The filters stay instant because filtering never depended on the cards
+// being present, only on the matrix being.
+//
+// Note what does NOT change under on-demand: every product's context is still
+// built here, because the PRICE bands and the sort keys read the same figure the
+// card prints and must know it for products no page has shown yet. It is the
+// RENDERING of a card - stamping a Puck document per product and serialising it
+// for the browser - that is skipped, and that is where the megabytes were.
+//
 export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
   await connection()
   const columns = props.columns ?? 3
@@ -100,6 +53,9 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
   const limit = props.limit ?? 24
   const pageSize = paginate === 'none' ? limit : Math.max(1, Math.floor(Number(props.pageSize)) || limit)
   const fetchCount = paginate === 'none' ? limit : HARD_MAX_PER_PAGE
+  // Where the pages after the first come from. Meaningless without paging, and
+  // 'upfront' either way is the behaviour every saved layout already has.
+  const onDemand = paginate !== 'none' && props.pageLoad === 'ondemand'
   const config = await getShopConfigCached()
   const categoryFilter = props.categorySlug
     ? await resolveCategoryProductFilter(props.categorySlug, config.categoryProductDisplayMode)
@@ -160,8 +116,6 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
     product,
     ctx: buildCardContext(product, mediaByProduct.get(product.id) ?? [], tagById, tagIdsByProduct.get(product.id) ?? [], config.currencySymbol, config, fromPrices.get(product.id) ?? null, cardExtras.get(product.id), tagsById),
   }))
-
-  const cards = await renderTaggedCards(template, items, config.productUrlStyle)
 
   // PRICE groups are matched right here, not in SQL: the band compares against
   // the same figure the card prints - the companion module's from-price when
@@ -324,11 +278,30 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
   const defaultSort = sortValueFromParam(props.defaultSort || 'best-selling') ?? ''
   const serverOrder = items.map(({ product }) => product.id)
   const ordered = defaultSort ? sortProductIds(serverOrder, sortKeys, defaultSort) : serverOrder
-  // Re-ordering the rendered cards, not the products, so nothing about how a
-  // card is built depends on the sort. Every id came from `items`, so the
-  // lookup cannot miss.
-  const cardById = new Map(serverOrder.map((id, at) => [id, cards[at]]))
-  const sortedCards = defaultSort ? ordered.map((id) => cardById.get(id)) : cards
+
+  // Which products get a card rendered into the page. Upfront, all of them, as
+  // this block has always done. On-demand, the FIRST PAGE - and the first page
+  // of a filter collection is the first page of what it arrives ticked with,
+  // not the first page of the raw list. "White Office Furniture" rendering
+  // twenty-four cards of which three are white would look like a broken page,
+  // and it is precisely the page this mode exists for.
+  //
+  // Worked out with the shell's own predicate over the shell's own starting
+  // selection, so the server's first page and the shell's first window are the
+  // same twenty-four products rather than two answers that nearly agree.
+  const startSelection = preselectByGroup(offered, preselect)
+  const renderIds = onDemand
+    ? ordered.filter((id) => matchesSelection(matrix.get(id) ?? [], startSelection, combos.get(id))).slice(0, pageSize)
+    : ordered
+  // Re-ordering the products, not finished cards: the per-product media, price
+  // and contributed-photo work inside the context build is most of the cost of a
+  // card, and slicing after the fact would have paid all of it.
+  const itemById = new Map(items.map((item) => [item.product.id, item]))
+  const sortedCards = await renderTaggedCards(
+    template,
+    renderIds.map((id) => itemById.get(id)).filter((item): item is CardItem => item != null),
+    config.productUrlStyle,
+  )
 
   return (
     <>
@@ -352,6 +325,23 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
         paginate={paginate}
         pageSize={pageSize}
         moreLabel={props.moreLabel}
+        renderedIds={onDemand ? renderIds : undefined}
+        // Bound here, so what the browser may ask for is a list of ids off a
+        // list the server drew up - which products this grid is over, which card
+        // design, and how many at a time are decided in this render and
+        // encrypted by Next on the way out. Re-validated server-side regardless.
+        loadCards={onDemand
+          ? loadFilterGridCards.bind(null, {
+              scope: {
+                categorySlug: props.categorySlug || undefined,
+                collectionSlug: props.collectionSlug || undefined,
+                tagSlug: props.tagSlug || undefined,
+                fetchCount,
+              },
+              layoutRef: props.layoutRef,
+              maxCards: pageSize,
+            })
+          : undefined}
       >
         {sortedCards}
       </FilterShell>

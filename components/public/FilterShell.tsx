@@ -80,6 +80,19 @@ export type FilterShellProps = {
   paginate?: 'none' | 'more' | 'pages' | 'scroll'
   pageSize?: number
   moreLabel?: string
+  // On-demand paging. Present means `children` is the FIRST PAGE of cards, not
+  // all of them, and this fetches the rest from the server as the shopper
+  // reaches them - the same cards, built by the same helpers, arriving as React
+  // nodes rather than as markup so their carousels and overlays still hydrate.
+  //
+  // Absent is every grid that came before: every matching card already in hand,
+  // shown and hidden in place. Both paths run the same passes below; the only
+  // difference is whether a card the window wants is already in the DOM.
+  loadCards?: (ids: string[]) => Promise<React.ReactNode[]>
+  // Which products `children` already holds cards for. Only meaningful beside
+  // loadCards, and named rather than counted because the first page is the
+  // PRESELECT-matching window, which is not the first N of `serverOrder`.
+  renderedIds?: string[]
   // Filter ids that arrive already ticked, on a filter collection page built
   // around them ("Green Office Chairs" is Colour=Green ticked on arrival). Empty
   // on every ordinary category, collection and tag page, where this whole
@@ -194,7 +207,7 @@ function dressCard(el: HTMLElement, swapList: FltSwap[], swapImages: boolean, pr
 // suppressed at the call site.
 const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect
 
-export function FilterShell({ groups, matrix, variations = EMPTY_VARIATIONS, swaps, sortKeys, showSort, defaultSort = '', serverOrder, columns, position, showCounts, swapImages, preselectOnClick, tabletBp, children, paginate = 'none', pageSize = 24, moreLabel, preselect }: FilterShellProps) {
+export function FilterShell({ groups, matrix, variations = EMPTY_VARIATIONS, swaps, sortKeys, showSort, defaultSort = '', serverOrder, columns, position, showCounts, swapImages, preselectOnClick, tabletBp, children, paginate = 'none', pageSize = 24, moreLabel, preselect, loadCards, renderedIds }: FilterShellProps) {
   const gridRef = useRef<HTMLDivElement>(null)
   const resultsRef = useRef<HTMLDivElement>(null)
   const drawerRef = useRef<HTMLDivElement>(null)
@@ -229,6 +242,17 @@ export function FilterShell({ groups, matrix, variations = EMPTY_VARIATIONS, swa
     setShownLimit(pageSize)
     setPage(1)
   }
+  // Cards fetched after the first page, in the order they were asked for. Only
+  // ever grows: a card already on the page is never thrown away, because the
+  // shopper can tick a filter off again and want it straight back.
+  const [extraCards, setExtraCards] = useState<React.ReactNode[]>([])
+  const loadedIdsRef = useRef<Set<string>>(new Set(renderedIds ?? []))
+  const [cardsFailed, setCardsFailed] = useState(false)
+  const [cardsLoading, setCardsLoading] = useState(false)
+  const [cardRetry, setCardRetry] = useState(0)
+  // The span in flight, so a scroll observer firing four times in a second asks
+  // once. A ref, because it has to be true the moment the effect decides.
+  const fetchingRef = useRef<string | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [closedGroups, setClosedGroups] = useState<Set<string>>(new Set())
   const [unfoldedGroups, setUnfoldedGroups] = useState<Set<string>>(new Set())
@@ -348,6 +372,81 @@ export function FilterShell({ groups, matrix, variations = EMPTY_VARIATIONS, swa
     () => groups.map((g) => ({ id: g.id, filterIds: g.filters.map((f) => f.id) })),
     [groups],
   )
+
+  // ---- Which products, in which order, and which of them are on screen ----
+  //
+  // Worked out from the data rather than read off the DOM. The passes below
+  // still drive the DOM, and did the counting too until on-demand paging
+  // existed - but the moment a card can be absent because it has not been
+  // fetched yet, "how many match" and "which are missing" are questions only
+  // the matrix can answer. Same predicate as the DOM pass (matchesSelection),
+  // so the two cannot drift.
+  const allIds = useMemo(
+    () => serverOrder ?? Object.keys(matrix),
+    [serverOrder, matrix],
+  )
+  const orderedIds = useMemo(() => sortProductIds(allIds, sortKeys, sort), [allIds, sortKeys, sort])
+  const matchingIds = useMemo(
+    () => orderedIds.filter((id) => matchesSelection(matrix[id] ?? [], selected, combosByProduct.get(id))),
+    [orderedIds, matrix, selected, combosByProduct],
+  )
+  // The window the pager is currently showing, in ids. 'more' and 'scroll' grow
+  // it from the top; 'pages' slides it; 'none' is the whole matching set.
+  const windowIds = useMemo(() => {
+    if (paginate === 'none') return matchingIds
+    const size = Math.max(1, Math.floor(pageSize) || 1)
+    const growingNow = paginate === 'more' || paginate === 'scroll'
+    const from = growingNow ? 0 : (page - 1) * size
+    const to = growingNow ? Math.max(size, shownLimit) : from + size
+    return matchingIds.slice(from, to)
+  }, [matchingIds, paginate, pageSize, page, shownLimit])
+
+  // Fetch whatever the window is missing. Gated on `urlRead` so it never fires
+  // against a provisional selection: until the query string has been read the
+  // ticks are empty because nothing has looked, not because the shopper chose
+  // nothing, and a page arriving already filtered would otherwise fetch a
+  // window of the unfiltered list first and throw it away.
+  useEffect(() => {
+    if (!loadCards || !urlRead) return
+    // One page's worth per call, whatever the window asks for. A shopper who
+    // presses "Show more" twice while the first batch is still coming, or lands
+    // straight on page nine of a filtered list, can want more than one page at
+    // once - and the server function caps what it will render anyway, so asking
+    // for more than that would quietly drop the tail. Capped here instead, and
+    // the effect re-runs as each batch lands (extraCards is a dependency), so a
+    // deep jump fills in over a few calls rather than half-filling once.
+    const missing = windowIds.filter((id) => !loadedIdsRef.current.has(id)).slice(0, Math.max(1, Math.floor(pageSize) || 1))
+    if (missing.length === 0) return
+    const key = missing.join(',')
+    if (fetchingRef.current === key) return
+    fetchingRef.current = key
+    setCardsLoading(true)
+    setCardsFailed(false)
+    // Deliberately NOT cancelled when the window moves on. A batch already asked
+    // for is worth keeping whatever the shopper has ticked since - the cards go
+    // into the grid and the passes below decide whether to show them, which is
+    // exactly what happens to every other card here. Discarding it deadlocks:
+    // tick a filter and untick it, and the window is the same window with the
+    // same ids, so the in-flight guard above refuses to ask again - while the
+    // answer that would have filled it is being thrown away on arrival. That
+    // page then never loads at all.
+    loadCards(missing)
+      .then((nodes) => {
+        // Marked loaded on arrival, not on request: a failed batch has to be
+        // askable again, and an id marked early would never be asked for.
+        for (const id of missing) loadedIdsRef.current.add(id)
+        setExtraCards((prev) => [...prev, ...nodes])
+      })
+      .catch(() => setCardsFailed(true))
+      .finally(() => {
+        // Only if it is still ours. A later batch may have claimed the slot
+        // while this one was out, and clearing that would let a duplicate go.
+        if (fetchingRef.current === key) fetchingRef.current = null
+        setCardsLoading(false)
+      })
+    // cardRetry is in the list on purpose and read nowhere: it is how the retry
+    // button asks again for a window that has not otherwise changed.
+  }, [loadCards, urlRead, windowIds, pageSize, extraCards, cardRetry])
   // Everything ticked, flattened in the owner's own group order rather than in
   // click order - the summary then reads down the page in the same order as the
   // groups beneath it, instead of shuffling itself every time one is removed.
@@ -369,21 +468,22 @@ export function FilterShell({ groups, matrix, variations = EMPTY_VARIATIONS, swa
   useIsomorphicLayoutEffect(() => {
     const root = gridRef.current
     if (!root) return
-    let shown = 0
     for (const el of root.querySelectorAll<HTMLElement>('[data-flt-product]')) {
       const productId = el.dataset.fltProduct ?? ''
       const matched = matrix[productId] ?? []
       const ok = matchesSelection(matched, selected, combosByProduct.get(productId))
       el.style.display = ok ? '' : 'none'
       el.toggleAttribute('data-flt-hidden', !ok)
-      if (ok) shown++
       const swapFilterIds = ok ? pickSwapFilters(matched, selected, orderedGroups) : []
       const swapList = swapFilterIds
         .map((id) => swaps[productId]?.[id])
         .filter((s): s is FltSwap => s != null)
       dressCard(el, swapList, swapImages, preselectOnClick)
     }
-    setVisibleCount(shown)
+    // Counted off the matrix rather than off the cards on screen. They are the
+    // same number whenever every card is in the DOM, and only the matrix knows
+    // the answer when the later pages have not been fetched yet.
+    setVisibleCount(matchingIds.length)
 
     // The cards are dressed on every pass, but the URL is only written once the
     // read above has happened - see the note there.
@@ -401,7 +501,9 @@ export function FilterShell({ groups, matrix, variations = EMPTY_VARIATIONS, swa
     else params.delete(sortParam)
     const query = params.toString()
     window.history.replaceState(null, '', query ? `?${query}` : window.location.pathname)
-  }, [selected, matrix, combosByProduct, groups, orderedGroups, swaps, swapImages, preselectOnClick, sort, sortParam, defaultSort, urlRead, preselected])
+    // extraCards: a batch that has just arrived is a set of cards nothing has
+    // shown, hidden or dressed yet.
+  }, [selected, matrix, combosByProduct, groups, orderedGroups, swaps, swapImages, preselectOnClick, sort, sortParam, defaultSort, urlRead, preselected, matchingIds, extraCards])
 
   // Re-order the server-rendered cards in place for the chosen sort. Real DOM
   // moves, not CSS `order`: the cards carry links and carousel buttons, and a
@@ -413,7 +515,12 @@ export function FilterShell({ groups, matrix, variations = EMPTY_VARIATIONS, swa
     if (!root) return
     // Nothing to do while the cards are still in the order the server rendered
     // them in - which is the starting sort, not necessarily the shop's own.
-    if (sort === defaultSort && !hasSortedRef.current) return
+    //
+    // A fetched batch is the exception, and has to be: it lands at the end of
+    // the grid because that is where React appends it, but it belongs wherever
+    // the current order puts it. Ticking a filter off again would otherwise
+    // leave those cards stranded at the bottom.
+    if (sort === defaultSort && !hasSortedRef.current && extraCards.length === 0) return
     hasSortedRef.current = true
     const cards = new Map<string, HTMLElement>()
     for (const el of root.querySelectorAll<HTMLElement>(':scope > [data-flt-product]')) {
@@ -426,36 +533,38 @@ export function FilterShell({ groups, matrix, variations = EMPTY_VARIATIONS, swa
       if (el) frag.appendChild(el)
     }
     root.appendChild(frag)
-  }, [sort, defaultSort, sortKeys])
+  }, [sort, defaultSort, sortKeys, extraCards])
 
   // The paging window, applied over whatever the filter and sort passes have
   // left. Declared AFTER both of them on purpose: effects run in declaration
   // order, so by the time this one reads the DOM the cards are in their final
   // order with the non-matching ones already display:none.
   //
-  // It re-reads the DOM rather than tracking indices, for the same reason the
-  // rest of this shell does: the cards are server-rendered nodes React never
-  // reconciles, and the sort moves them about underneath it.
+  // Driven by IDS rather than by counting along the DOM. Those were the same
+  // thing while every card was on the page - the DOM order is the matching
+  // order, so the nth element was the nth match - and they stop being the same
+  // thing the moment a card can be absent because it has not been fetched yet.
+  // Page three of an on-demand grid holds cards 0-23 and 48-71, so "elements 48
+  // to 71 of what is here" is an empty page, and the grid would simply go blank.
   //
   // The `display` it writes is the same property the filter pass writes, and the
-  // two never disagree because this one only ever hides cards the filter pass
-  // has already shown - a card hidden by a tick stays hidden regardless.
+  // two never disagree because this one leaves a card the filter pass has
+  // already hidden exactly as it found it - a card hidden by a tick stays hidden
+  // regardless of which page it would otherwise fall on.
   useIsomorphicLayoutEffect(() => {
     if (paginate === 'none') return
     const root = gridRef.current
     if (!root) return
-    const size = Math.max(1, Math.floor(pageSize) || 1)
-    const matching = [...root.querySelectorAll<HTMLElement>(':scope > [data-flt-product]')]
-      .filter((el) => !el.hasAttribute('data-flt-hidden'))
-    const growing = paginate === 'more' || paginate === 'scroll'
-    const from = growing ? 0 : (page - 1) * size
-    const to = growing ? Math.max(size, shownLimit) : from + size
-    matching.forEach((el, i) => {
-      const onThisPage = i >= from && i < to
-      el.style.display = onThisPage ? '' : 'none'
-      el.toggleAttribute('data-flt-offpage', !onThisPage)
-    })
-  }, [paginate, pageSize, page, shownLimit, selected, sort, matrix])
+    const onPage = new Set(windowIds)
+    for (const el of root.querySelectorAll<HTMLElement>(':scope > [data-flt-product]')) {
+      if (el.hasAttribute('data-flt-hidden')) continue
+      const on = onPage.has(el.dataset.fltProduct ?? '')
+      el.style.display = on ? '' : 'none'
+      el.toggleAttribute('data-flt-offpage', !on)
+    }
+    // extraCards: a batch that has just arrived is a set of cards this has never
+    // put on or off a page.
+  }, [paginate, windowIds, extraCards])
 
   function toggle(groupId: string, filterId: string) {
     setSelected((prev) => {
@@ -529,7 +638,7 @@ export function FilterShell({ groups, matrix, variations = EMPTY_VARIATIONS, swa
 
   // How many cards the filters have left, which is what the pager pages over.
   // Falls back to the whole set before the first filter pass has run.
-  const matchingTotal = visibleCount ?? matrixEntries.length
+  const matchingTotal = visibleCount ?? matchingIds.length
   const lastPage = Math.max(1, Math.ceil(matchingTotal / Math.max(1, pageSize)))
   // One way to grow the window, whether a thumb or the observer asked for it.
   const growing = paginate === 'more' || paginate === 'scroll'
@@ -563,9 +672,24 @@ export function FilterShell({ groups, matrix, variations = EMPTY_VARIATIONS, swa
     <>
       <div className="shop-grid" style={{ ['--shop-cols' as string]: String(columns) } as React.CSSProperties} ref={gridRef}>
         {children}
+        {/* Fetched pages, rendered by React rather than written into the DOM by
+            hand: the passes above move and dress cards, but the cards themselves
+            have to belong to the tree or their carousels never hydrate. React
+            appends them at the end; the sort pass then puts them where they go. */}
+        {extraCards}
       </div>
+      {cardsFailed && (
+        // A grid that has stopped growing looks like a grid that has run out, so
+        // say so and offer the way back rather than leaving the shopper to guess.
+        <p className="flt-cards-failed" role="status">
+          Those didn&rsquo;t load.{' '}
+          <button type="button" className="flt-cards-retry" onClick={() => setCardRetry((n) => n + 1)}>
+            Try again
+          </button>
+        </p>
+      )}
       {paginate !== 'none' && matchingTotal > pageSize && (
-        <nav className="flt-pager" aria-label="Product pages">
+        <nav className="flt-pager" aria-label="Product pages" aria-busy={cardsLoading || undefined}>
           {growing
             ? moreToShow && (
                 <>

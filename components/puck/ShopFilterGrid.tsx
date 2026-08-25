@@ -30,6 +30,12 @@ export type ShopFilterGridProps = {
   // grid fetching up to shop's HARD_MAX_PER_PAGE behind it.
   paginate?: string
   pageSize?: number
+  // Where the pages after the first come from. Blank or 'upfront' is what paging
+  // has always done - every matching card rendered into the page, shown and
+  // hidden in the browser. 'ondemand' renders the first page only and fetches
+  // the rest from the server as the shopper reaches them. Only read when
+  // `paginate` is on.
+  pageLoad?: string
   moreLabel?: string
   // Filter ids that arrive already ticked. Injected by a filter collection page
   // (lib/inject-filter-collection-context.ts) and never an editor field: which
@@ -157,6 +163,13 @@ export const shopFilterGridPuckComponent = {
       ],
     },
     pageSize: { type: 'number' as const, label: 'Products per page (blank uses the number above)', min: 1, max: 100 },
+    // The default is deliberately the old behaviour. On-demand is the right
+    // answer for a big catalogue and the wrong one for a page of nine, and only
+    // the owner knows which they have.
+    pageLoad: { type: 'select' as const, label: 'Where the later pages come from', options: [
+      { value: 'upfront', label: 'Sent with the page - instant to flick through, heavier to load' },
+      { value: 'ondemand', label: 'Fetched as the shopper reaches them - much lighter page' },
+    ] },
     moreLabel: { type: 'text' as const, label: '"Show more" button label' },
     layoutRef: layoutField,
   },
@@ -172,6 +185,7 @@ export const shopFilterGridPuckComponent = {
     showSort: 'yes',
     defaultSort: 'best-selling',
     paginate: 'none',
+    pageLoad: 'upfront',
     pageSize: undefined,
     moreLabel: 'Show more',
     layoutRef: null,
