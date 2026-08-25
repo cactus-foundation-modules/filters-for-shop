@@ -6,6 +6,8 @@ import type { FltPuckData } from '@/modules/filters-for-shop/lib/types'
 const CONTEXT_BLOCKS = new Set(['FilterCollectionHeader', 'FilterCollectionIntro'])
 
 type FilterCollectionContext = {
+  /** Which page of a paged grid to render, from `?page=` (1 unless asked). */
+  page?: number
   // The collection's own slug. Every block resolves the record from it rather
   // than being handed a copy, so the injection stays a two-string write however
   // big the designed intro grows.
@@ -40,6 +42,9 @@ function injectBlocks(blocks: unknown[], ctx: FilterCollectionContext): void {
       block.props.collectionSlug = ctx.collectionSlug
       block.props.tagSlug = ctx.tagSlug
       block.props.preselectFilterIds = ctx.preselectFilterIds
+    }
+    if ((block.type === 'ShopProductGrid' || block.type === 'ShopFilterGrid') && block.props && ctx.page != null) {
+      block.props.page = ctx.page
     }
     if (block.props) {
       for (const value of Object.values(block.props)) {

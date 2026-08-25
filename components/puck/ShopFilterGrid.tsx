@@ -36,6 +36,11 @@ export type ShopFilterGridProps = {
   // the rest from the server as the shopper reaches them. Only read when
   // `paginate` is on.
   pageLoad?: string
+  // Which page of the shelf to render. NOT a Puck field - per-request context
+  // written into the block's props by the page route, exactly as categorySlug
+  // is, because a block cannot read the address it is served at. 1 unless
+  // `?page=` says otherwise.
+  page?: number
   moreLabel?: string
   // Filter ids that arrive already ticked. Injected by a filter collection page
   // (lib/inject-filter-collection-context.ts) and never an editor field: which

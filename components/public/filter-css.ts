@@ -226,7 +226,9 @@ export function shopFilterCss({ tabletBp, mobileBp }: Breakpoints): string {
 .flt-cards-failed{margin:16px 0 0;font-size:13px;color:var(--color-text-muted);text-align:center}
 .flt-cards-retry{appearance:none;background:none;border:0;padding:0;font:inherit;color:var(--color-primary);text-decoration:underline;cursor:pointer}
 .flt-cards-retry:focus-visible{outline:2px solid var(--color-primary);outline-offset:2px}
-.flt-pager-more{min-height:44px;padding:0 26px;border:1px solid var(--color-border);border-radius:9999px;background:var(--color-surface);color:var(--color-fg);font:inherit;font-weight:600;font-size:15px;cursor:pointer;transition:background .12s ease}
+.flt-pager-prev{font-size:14px;color:var(--color-text-muted);text-decoration:underline}
+.flt-pager-prev:focus-visible{outline:2px solid var(--color-primary);outline-offset:2px}
+.flt-pager-more{display:inline-flex;align-items:center;justify-content:center;text-decoration:none;min-height:44px;padding:0 26px;border:1px solid var(--color-border);border-radius:9999px;background:var(--color-surface);color:var(--color-fg);font:inherit;font-weight:600;font-size:15px;cursor:pointer;transition:background .12s ease}
 .flt-pager-more:hover{background:var(--color-bg-subtle)}
 .flt-pager-more:focus-visible{outline:2px solid var(--color-primary);outline-offset:2px}
 .flt-pager-pages{display:flex;flex-wrap:wrap;justify-content:center;gap:6px;list-style:none;margin:0;padding:0}

@@ -8,6 +8,7 @@ import { getModuleLayoutPuckRscConfig } from '@/lib/puck/config.rsc'
 import { getShopGate, hasShopPermission } from '@/modules/shop/lib/access'
 import { ShopClosedNotice, ShopStaffPreviewBanner } from '@/modules/shop/components/public/ShopClosedNotice'
 import { getCollectionBySlug } from '@/modules/filters-for-shop/lib/db/collections'
+import { pageFromParams, pageTitleSuffix, withPageParam } from '@/modules/shop/lib/page-href'
 import { resolveSourceCrumb } from '@/modules/filters-for-shop/lib/collection-source'
 import { injectFilterCollectionContext, sourceGridProps } from '@/modules/filters-for-shop/lib/inject-filter-collection-context'
 import { FILTER_COLLECTION_LAYOUT_TYPE, type FltCollection, type FltPuckData } from '@/modules/filters-for-shop/lib/types'
@@ -24,7 +25,13 @@ import Link from 'next/link'
 // whether it may be SHOWN is decided below, not by the claim, so staff keep
 // their preview of a draft.
 
-type Props = { params: Promise<{ slug: string }> }
+type Props = {
+  params: Promise<{ slug: string }>
+  // Read for `?page=`, which is how a crawler walks the rest of a long
+  // collection. A grid block cannot read the address it is served at, so the
+  // route reads it and writes it into the block's props.
+  searchParams: Promise<Record<string, string | string[] | undefined>>
+}
 
 // Draft pages are staff-only. Resolved the same way in both halves of the file
 // so the tab title can never publish a page the body refuses to render.
@@ -42,8 +49,9 @@ async function resolveVisible(slug: string): Promise<{ collection: FltCollection
   return { collection, draft: true }
 }
 
-export async function generateMetadata({ params }: Props): Promise<Metadata> {
+export async function generateMetadata({ params, searchParams }: Props): Promise<Metadata> {
   const { slug } = await params
+  const page = pageFromParams(await searchParams)
   // A closed shop must not publish these page names either, exactly as shop's
   // own surfaces withhold theirs.
   if ((await getShopGate()).blocked) return {}
@@ -54,12 +62,16 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const siteUrl = getSiteUrlOrNull()
   const description = collection.metaDescription || collection.shortDescription || undefined
   return {
-    title: collection.metaTitle || collection.name,
+    title: (collection.metaTitle || collection.name) + pageTitleSuffix(page),
     description,
     // Self-canonical at the bare address. The filter panel writes the shopper's
     // own ticks into the query string as they go, so without this every cut of
     // the page would read to a crawler as a separate address for the same one.
-    ...(siteUrl ? { alternates: { canonical: `${siteUrl}/${collection.slug}` } } : {}),
+    // Self-canonical, page and all. Pointing page two at page one would tell a
+    // crawler the two are the same document, and the products only page two
+    // links to would stop being discovered through it - which is the entire
+    // reason the link exists.
+    ...(siteUrl ? { alternates: { canonical: `${siteUrl}/${collection.slug}${withPageParam('', page)}` } } : {}),
     // A page still in draft is only visible to staff, so it must never be
     // indexed regardless of the owner's own setting.
     ...(collection.noindex || draft ? { robots: { index: false, follow: true } } : {}),
@@ -69,8 +81,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   }
 }
 
-export default async function FilterCollectionPage({ params }: Props) {
+export default async function FilterCollectionPage({ params, searchParams }: Props) {
   const { slug } = await params
+  const page = pageFromParams(await searchParams)
   const gate = await getShopGate()
   if (gate.blocked) return <ShopClosedNotice message={gate.message} />
 
@@ -100,6 +113,7 @@ export default async function FilterCollectionPage({ params }: Props) {
       filterPageSlug: collection.slug,
       ...grid,
       preselectFilterIds: collection.filterIds,
+      page,
     })
     return (
       <>

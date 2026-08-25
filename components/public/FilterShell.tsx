@@ -4,6 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { facetCount, matchesSelection, pickSwapFilters, type FltMatrixEntry, type FltSelection } from '@/modules/filters-for-shop/lib/filter-logic'
 import { applySelectionToParams, preselectByGroup, selectionFromParams } from '@/modules/filters-for-shop/lib/preselect'
 import { isImageSwatch, type FltControlType } from '@/modules/filters-for-shop/lib/types'
+import { pageHref } from '@/modules/shop/lib/page-href'
 import { FLT_SORT_OPTIONS, FLT_SORT_RECOMMENDED_PARAM, isFltSortValue, sortProductIds, sortValueFromParam, type FltSortKey, type FltSortValue } from '@/modules/filters-for-shop/lib/sort'
 import type { FltSwap } from '@/modules/filters-for-shop/lib/db/matching'
 
@@ -93,6 +94,11 @@ export type FilterShellProps = {
   // loadCards, and named rather than counted because the first page is the
   // PRESELECT-matching window, which is not the first N of `serverOrder`.
   renderedIds?: string[]
+  // Which page the SERVER rendered, from `?page=` on the address. 1 unless a
+  // crawler or a shared link asked for another. The window opens there and grows
+  // downward from it, so following a link to page three lands on products 25-36
+  // rather than quietly starting over at the top.
+  page?: number
   // Filter ids that arrive already ticked, on a filter collection page built
   // around them ("Green Office Chairs" is Colour=Green ticked on arrival). Empty
   // on every ordinary category, collection and tag page, where this whole
@@ -207,7 +213,7 @@ function dressCard(el: HTMLElement, swapList: FltSwap[], swapImages: boolean, pr
 // suppressed at the call site.
 const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect
 
-export function FilterShell({ groups, matrix, variations = EMPTY_VARIATIONS, swaps, sortKeys, showSort, defaultSort = '', serverOrder, columns, position, showCounts, swapImages, preselectOnClick, tabletBp, children, paginate = 'none', pageSize = 24, moreLabel, preselect, loadCards, renderedIds }: FilterShellProps) {
+export function FilterShell({ groups, matrix, variations = EMPTY_VARIATIONS, swaps, sortKeys, showSort, defaultSort = '', serverOrder, columns, position, showCounts, swapImages, preselectOnClick, tabletBp, children, paginate = 'none', pageSize = 24, moreLabel, preselect, loadCards, renderedIds, page: serverPage }: FilterShellProps) {
   const gridRef = useRef<HTMLDivElement>(null)
   const resultsRef = useRef<HTMLDivElement>(null)
   const drawerRef = useRef<HTMLDivElement>(null)
@@ -225,8 +231,11 @@ export function FilterShell({ groups, matrix, variations = EMPTY_VARIATIONS, swa
   // How many of the matching cards are on screen. 'more' grows this window;
   // 'pages' slides it. Meaningless when paginate is 'none', where the paging
   // effect below returns before touching anything.
-  const [shownLimit, setShownLimit] = useState(pageSize)
-  const [page, setPage] = useState(1)
+  // Both open on whichever page the server rendered - page one unless `?page=`
+  // said otherwise - so a crawler's link and a shared one land where they point.
+  const startPage = Math.max(1, Math.floor(Number(serverPage)) || 1)
+  const [shownLimit, setShownLimit] = useState(startPage * pageSize)
+  const [page, setPage] = useState(startPage)
   // Whenever the filtered set changes, go back to the top of it. Without this a
   // shopper on page 7 who ticks "Mesh" and cuts the list to nine products lands
   // on an empty grid and concludes the filter is broken.
@@ -396,10 +405,14 @@ export function FilterShell({ groups, matrix, variations = EMPTY_VARIATIONS, swa
     if (paginate === 'none') return matchingIds
     const size = Math.max(1, Math.floor(pageSize) || 1)
     const growingNow = paginate === 'more' || paginate === 'scroll'
-    const from = growingNow ? 0 : (page - 1) * size
-    const to = growingNow ? Math.max(size, shownLimit) : from + size
-    return matchingIds.slice(from, to)
-  }, [matchingIds, paginate, pageSize, page, shownLimit])
+    // A growing shelf starts at the page it was asked for and grows DOWNWARD
+    // from there. Starting at the top instead would make ?page=3 fetch pages one
+    // and two that nobody asked to see, and land the shopper somewhere other
+    // than the link they followed.
+    const start = growingNow ? (startPage - 1) * size : (page - 1) * size
+    const to = growingNow ? Math.max(start + size, shownLimit) : start + size
+    return matchingIds.slice(start, to)
+  }, [matchingIds, paginate, pageSize, page, startPage, shownLimit])
 
   // Fetch whatever the window is missing. Gated on `urlRead` so it never fires
   // against a provisional selection: until the query string has been read the
@@ -652,6 +665,26 @@ export function FilterShell({ groups, matrix, variations = EMPTY_VARIATIONS, swa
     () => setShownLimit((n) => Math.min(n + pageSize, matchingTotal)),
     [pageSize, matchingTotal],
   )
+  // The address the control points at, and the one back. The server renders
+  // `?page=N` bare because a block has no idea what path serves it; once mounted
+  // we know, so they are rebuilt against the real query string - which is what
+  // keeps a shopper's ticked filters on the link in the status bar.
+  const [query, setQuery] = useState('')
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the query string is only readable post-mount, and reading it during render would mismatch the server's markup on hydration
+    setQuery(window.location.search)
+  }, [])
+  const lastPageAll = Math.max(1, Math.ceil(matchingTotal / Math.max(1, pageSize)))
+  const nextPage = Math.min(lastPageAll, Math.floor(Math.min(shownLimit, matchingTotal) / Math.max(1, pageSize)) + 1)
+  const hrefNext = pageHref(query, nextPage)
+  const hrefPrev = pageHref(query, Math.max(1, startPage - 1))
+  // Modifier and middle clicks are deliberately left alone: the address is real
+  // and a shopper asking for it in a new tab should get it.
+  const takeOverClick = useCallback((e: React.MouseEvent<HTMLAnchorElement>, run: () => void) => {
+    if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+    e.preventDefault()
+    run()
+  }, [])
   const sentinelRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (paginate !== 'scroll' || !moreToShow) return
@@ -690,12 +723,27 @@ export function FilterShell({ groups, matrix, variations = EMPTY_VARIATIONS, swa
       )}
       {paginate !== 'none' && matchingTotal > pageSize && (
         <nav className="flt-pager" aria-label="Product pages" aria-busy={cardsLoading || undefined}>
+          {/* Only past page one, and only on a growing shelf - numbered pages
+              carry their own way back. Without it a crawler can walk forward
+              through the shelf and never back, which reads as a chain of
+              orphans. */}
+          {growing && startPage > 1 && (
+            <a className="flt-pager-prev" href={hrefPrev} rel="prev">
+              &lsaquo; Previous
+            </a>
+          )}
           {growing
             ? moreToShow && (
                 <>
-                  <button type="button" className="flt-pager-more" onClick={showMore}>
+                  {/* An anchor, not a button, and that is the whole trick. A
+                      shopper's click is intercepted and the next products arrive
+                      in place - infinite scroll, unchanged. A crawler has no
+                      JavaScript to intercept anything, so it sees a plain link to
+                      the next page and follows it, and the one after that, until
+                      the shelf runs out. */}
+                  <a className="flt-pager-more" href={hrefNext} onClick={(e) => takeOverClick(e, showMore)}>
                     {moreLabel || 'Show more'}
-                  </button>
+                  </a>
                   {/* What the observer watches: a scroll position, not content,
                       so it is empty and hidden from assistive tech. */}
                   {paginate === 'scroll' && <div ref={sentinelRef} aria-hidden="true" style={{ width: '100%', height: 1 }} />}

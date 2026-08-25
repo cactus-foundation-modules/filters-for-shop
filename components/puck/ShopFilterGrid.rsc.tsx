@@ -299,9 +299,15 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
   // selection, so the server's first page and the shell's first window are the
   // same twenty-four products rather than two answers that nearly agree.
   const startSelection = preselectByGroup(offered, preselect)
-  const renderIds = onDemand
-    ? ordered.filter((id) => matchesSelection(matrix.get(id) ?? [], startSelection, combos.get(id))).slice(0, pageSize)
+  // Which window of the shelf this render is. Page one unless the address said
+  // otherwise; ignored when every card is going in anyway, because then every
+  // product is already linked from page one.
+  const page = onDemand ? Math.max(1, Math.floor(Number(props.page)) || 1) : 1
+  const from = (page - 1) * pageSize
+  const matchingOrdered = onDemand
+    ? ordered.filter((id) => matchesSelection(matrix.get(id) ?? [], startSelection, combos.get(id)))
     : ordered
+  const renderIds = onDemand ? matchingOrdered.slice(from, from + pageSize) : ordered
   // Re-ordering the products, not finished cards: the per-product media, price
   // and contributed-photo work inside the context build is most of the cost of a
   // card, and slicing after the fact would have paid all of it.
@@ -335,6 +341,7 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
         pageSize={pageSize}
         moreLabel={props.moreLabel}
         renderedIds={onDemand ? renderIds : undefined}
+        page={page}
         // Bound here, so what the browser may ask for is a list of ids off a
         // list the server drew up - which products this grid is over, which card
         // design, and how many at a time are decided in this render and
