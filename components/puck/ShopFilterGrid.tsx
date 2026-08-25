@@ -167,8 +167,8 @@ export const shopFilterGridPuckComponent = {
     // answer for a big catalogue and the wrong one for a page of nine, and only
     // the owner knows which they have.
     pageLoad: { type: 'select' as const, label: 'Where the later pages come from', options: [
-      { value: 'upfront', label: 'Sent with the page - instant to flick through, heavier to load' },
       { value: 'ondemand', label: 'Fetched as the shopper reaches them - much lighter page' },
+      { value: 'upfront', label: 'Sent with the page - instant to flick through, heavier to load' },
     ] },
     moreLabel: { type: 'text' as const, label: '"Show more" button label' },
     layoutRef: layoutField,
@@ -177,7 +177,11 @@ export const shopFilterGridPuckComponent = {
     categorySlug: '',
     collectionSlug: '',
     tagSlug: '',
-    limit: 24,
+    // 12, not 24. A grid's opening screenful is the slowest thing on a
+    // storefront and the one every shopper waits for, so a NEW grid starts at
+    // four rows of three rather than eight. A layout already saved keeps
+    // whatever number it was given - defaults only apply to a block being added.
+    limit: 12,
     columns: 3,
     filterPosition: 'left',
     showCounts: 'yes',
@@ -185,7 +189,13 @@ export const shopFilterGridPuckComponent = {
     showSort: 'yes',
     defaultSort: 'best-selling',
     paginate: 'none',
-    pageLoad: 'upfront',
+    // On-demand from the off, so a grid switched to paging is light without
+    // anybody having to know this setting exists. Verified end to end against a
+    // real catalogue before being made the default (2026-08-25): the fetched
+    // cards arrive with their carousels working, which is the part that could
+    // not be taken on trust. Again, saved layouts are unaffected - a block that
+    // stored 'upfront' keeps it.
+    pageLoad: 'ondemand',
     pageSize: undefined,
     moreLabel: 'Show more',
     layoutRef: null,

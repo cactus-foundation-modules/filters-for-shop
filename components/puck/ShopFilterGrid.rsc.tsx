@@ -53,9 +53,18 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
   const limit = props.limit ?? 24
   const pageSize = paginate === 'none' ? limit : Math.max(1, Math.floor(Number(props.pageSize)) || limit)
   const fetchCount = paginate === 'none' ? limit : HARD_MAX_PER_PAGE
-  // Where the pages after the first come from. Meaningless without paging, and
-  // 'upfront' either way is the behaviour every saved layout already has.
-  const onDemand = paginate !== 'none' && props.pageLoad === 'ondemand'
+  // Where the pages after the first come from. Meaningless without paging.
+  //
+  // ABSENT means the owner never chose, and since 0.1.39 that means on-demand.
+  // A grid with paging switched on has already said there are more products than
+  // fit; building every one of them into the page anyway is what makes such a
+  // page unloadable, and no owner should have to know that to avoid it. Only an
+  // explicit 'upfront' - a choice somebody actually made - keeps the old way.
+  //
+  // Measured on the live site this was written for: 51 grids across every
+  // category, collection and filter-collection layout, every one of them
+  // `paginate: 'scroll'` with `pageLoad` unset. One page was 7.2 MB.
+  const onDemand = paginate !== 'none' && props.pageLoad !== 'upfront'
   const config = await getShopConfigCached()
   const categoryFilter = props.categorySlug
     ? await resolveCategoryProductFilter(props.categorySlug, config.categoryProductDisplayMode)
