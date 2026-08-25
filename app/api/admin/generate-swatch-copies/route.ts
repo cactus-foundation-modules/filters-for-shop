@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { prisma } from '@/lib/db/prisma'
 import { requireShopUser } from '@/modules/shop/lib/access'
 import { updateFilter } from '@/modules/filters-for-shop/lib/db/filters'
-import { generateSwatchCopies } from '@/modules/filters-for-shop/lib/swatch-renditions'
+import { generateSwatchCopies, type SwatchCopyName } from '@/modules/filters-for-shop/lib/swatch-renditions'
 import { isImageSwatch } from '@/modules/filters-for-shop/lib/types'
 
 // Backfill: make the shrunk copies for filters whose picture swatch predates
@@ -43,24 +43,36 @@ export async function POST(request: Request) {
 
   let made = 0
   let skipped = 0
-  // Two filters may point at one picture (the same fabric standing for a colour
-  // in two groups), so copies made for a url are reused across the batch rather
-  // than minted twice.
-  const madeByUrl = new Map<string, { small: string | null; tiny: string | null }>()
+  // Two filters may stand for one picture (the same fabric meaning Blue in one
+  // group and Fabric in another), so what has been worked out for a url is reused
+  // across the batch rather than worked out per filter.
+  const copiesByUrl = new Map<string, { small: string | null; tiny: string | null }>()
   for (const row of rows) {
     if (!isImageSwatch(row.swatch)) { skipped += 1; continue }
 
-    let copies = madeByUrl.get(row.swatch) ?? null
-    if (!copies) {
-      copies = await generateSwatchCopies(row.swatch)
-      madeByUrl.set(row.swatch, copies)
+    // What any filter already has for this picture, taken column by column - so a
+    // half-finished earlier run contributes what it managed rather than being
+    // read as "done" or ignored entirely.
+    const known = copiesByUrl.get(row.swatch) ?? await (async () => {
+      const sibling = await prisma.$queryRaw<[{ small: string | null; tiny: string | null }]>`
+        SELECT MAX("swatch_small") AS small, MAX("swatch_tiny") AS tiny
+        FROM "flt_filters" WHERE "swatch" = ${row.swatch}
+      `
+      return { small: sibling[0]?.small ?? null, tiny: sibling[0]?.tiny ?? null }
+    })()
+
+    let small = row.swatch_small ?? known.small
+    let tiny = row.swatch_tiny ?? known.tiny
+    const want: SwatchCopyName[] = [...(small ? [] : ['small' as const]), ...(tiny ? [] : ['tiny' as const])]
+    if (want.length > 0) {
+      const fresh = await generateSwatchCopies(row.swatch, { want })
+      small = small ?? fresh.small
+      tiny = tiny ?? fresh.tiny
     }
+    copiesByUrl.set(row.swatch, { small, tiny })
 
-    const nextSmall = row.swatch_small ?? copies.small
-    const nextTiny = row.swatch_tiny ?? copies.tiny
-    if (nextSmall === row.swatch_small && nextTiny === row.swatch_tiny) { skipped += 1; continue }
-
-    await updateFilter(row.id, { swatchSmall: nextSmall, swatchTiny: nextTiny })
+    if (small === row.swatch_small && tiny === row.swatch_tiny) { skipped += 1; continue }
+    await updateFilter(row.id, { swatchSmall: small, swatchTiny: tiny })
     made += 1
   }
 
