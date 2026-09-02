@@ -61,6 +61,14 @@ themselves.
   Published pages are added to the site's sitemap automatically. All of them are
   stamped through one shared `filterCollection` layout, so forty SEO pages do
   not mean forty layouts.
+- **Filters on the search results page.** With the search module installed, the
+  results page gets the same panel over its product results - the same ticks,
+  swatches, counts and card photo swapping, cut down to the filters those
+  particular results can be narrowed by. It is built over every product the
+  search matched (up to 120, most relevant first), not just the page on screen,
+  so ticking Blue cannot hide the blue one that happened to rank twenty-first.
+  Nothing to configure here: the search block offers a "Product filters panel"
+  switch and this module answers it.
 
 ## Where things live
 

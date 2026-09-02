@@ -11,8 +11,8 @@ import type { CardItem } from '@/modules/shop/lib/card-template'
 import { listGroups } from '@/modules/filters-for-shop/lib/db/filters'
 import { getSettings } from '@/modules/filters-for-shop/lib/db/settings'
 import { getProductFilterMatches } from '@/modules/filters-for-shop/lib/db/matching'
-import { priceInBand } from '@/modules/filters-for-shop/lib/types'
 import { CATEGORY_GROUP_ID, CATEGORY_GROUP_SLUG, CATEGORY_GROUP_NAME, buildBranchIndex, productBranchFilterIds, categoryFilterId } from '@/modules/filters-for-shop/lib/category-filter'
+import { applyPriceBands, internVariations, offerGroups } from '@/modules/filters-for-shop/lib/grid-build'
 import { sortProductIds, sortValueFromParam, type FltSortKey } from '@/modules/filters-for-shop/lib/sort'
 import { FilterShell, type FltPublicGroup } from '@/modules/filters-for-shop/components/public/FilterShell'
 import { shopFilterCss } from '@/modules/filters-for-shop/components/public/filter-css'
@@ -138,26 +138,9 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
     priceOf.set(product.id, Number(ctx.fromPrice ?? ctx.prices.now))
   }
 
-  // PRICE groups are matched right here, not in SQL: the band compares against
-  // the same figure the card prints - the companion module's from-price when
-  // one exists, else shop's own price - so a filter can never disagree with
-  // the number the shopper is looking at. Works for variation-less products
-  // too, which the option matcher by design cannot see.
-  const priceFilters = groups
-    .filter((g) => g.kind === 'PRICE')
-    .flatMap((g) => g.filters.filter((f) => f.priceMin !== null || f.priceMax !== null))
-  if (priceFilters.length > 0) {
-    for (const productId of productIds) {
-      const price = priceOf.get(productId) ?? Number.NaN
-      if (!Number.isFinite(price)) continue
-      for (const f of priceFilters) {
-        if (!priceInBand(price, f.priceMin, f.priceMax)) continue
-        const list = matrix.get(productId) ?? []
-        list.push(f.id)
-        matrix.set(productId, list)
-      }
-    }
-  }
+  // PRICE groups, matched against the same figure the card prints - see
+  // lib/grid-build.ts.
+  applyPriceBands(matrix, groups, priceOf)
 
   // Each product earns a filter id per sub-category branch it is filed on, so
   // the Category group behaves exactly like an admin-defined one - facet
@@ -196,36 +179,9 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
     }
   }
 
-  // Drop filters nothing on this page can match, so a category page never
-  // offers a tick that always returns nothing - and drop groups left with
-  // fewer than two filters: a heading with one tick under it is not a choice
-  // (on a page of sit-stand desks, "Height adjustable: Yes" filters nothing).
-  //
-  // Both rules step aside for a filter this page arrives with ticked. They are
-  // about not offering a pointless CHOICE, and a preselected filter is not a
-  // choice, it is what the page IS - culled away, "Chairs Under £200" would
-  // quietly drop its own price band and show the lot at any price. It stays
-  // offered so the shopper can still clear it, and if it happens to match
-  // nothing the grid comes back empty, which is the honest answer.
+  // The groups this page offers, culled by lib/grid-build.ts.
   const preselectedIds = new Set(props.preselectFilterIds ?? [])
-  const matchedFilterIds = new Set([...matrix.values()].flat())
-  const adminGroups: FltPublicGroup[] = groups
-    .map((group) => ({
-      id: group.id,
-      name: group.name,
-      slug: group.slug,
-      controlType: group.controlType,
-      filters: group.filters
-        .filter((f) => (group.kind === 'PRICE' ? f.priceMin !== null || f.priceMax !== null : f.rules.length > 0))
-        .filter((f) => !settings.hideEmptyFilters || matchedFilterIds.has(f.id) || preselectedIds.has(f.id))
-        // Collapsed to one url here rather than shipping all three: a picture
-        // swatch is drawn as a 14px dot or a 56px tile in this panel, so the
-        // tiny copy is the right file and the full-size photograph exists for
-        // the 3D module, not for this. Falls back through the small copy to the
-        // original, which is exactly what every filter drew before the copies.
-        .map((f) => ({ id: f.id, label: f.label, slug: f.slug, swatch: f.swatchTiny ?? f.swatchSmall ?? f.swatch })),
-    }))
-    .filter((group) => group.filters.length >= 2 || group.filters.some((f) => preselectedIds.has(f.id)))
+  const adminGroups = offerGroups(groups, matrix, settings.hideEmptyFilters, preselectedIds)
   // Category leads the panel: it is the page's own structure, and the widest
   // cut a shopper can make before the finer admin-defined facets.
   const offered: FltPublicGroup[] = categoryGroup ? [categoryGroup, ...adminGroups] : adminGroups
@@ -237,41 +193,11 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
   const offeredFilterIds = new Set(offered.flatMap((g) => g.filters.map((f) => f.id)))
   const preselect = [...preselectedIds].filter((id) => offeredFilterIds.has(id))
 
-  // Intern the per-variation detail for the wire. Every distinct combination is
-  // written once and named by index afterwards - see FltVariationIndex, and the
-  // note there on why the spelled-out version is too big to send.
-  //
-  // Price and sub-category ids are deliberately not in here. They were added to
+  // Interned for the wire - see lib/grid-build.ts. Price and sub-category ids
+  // are deliberately absent from `combos` by construction: they were added to
   // the matrix above and belong to the listing, not to any one variation, so a
   // cross-group check must not hold a variation to them.
-  const variationFilterIds: string[] = []
-  const indexOfFilter = new Map<string, number>()
-  const indexOfCombo = new Map<string, number>()
-  const comboTable: number[][] = []
-  const combosByProduct: Record<string, number[]> = {}
-  for (const [productId, list] of combos) {
-    const seenHere = new Set<number>()
-    for (const combo of list) {
-      const encoded = combo
-        .map((filterId) => {
-          let at = indexOfFilter.get(filterId)
-          if (at === undefined) {
-            at = variationFilterIds.push(filterId) - 1
-            indexOfFilter.set(filterId, at)
-          }
-          return at
-        })
-        .sort((a, b) => a - b)
-      const key = encoded.join(',')
-      let row = indexOfCombo.get(key)
-      if (row === undefined) {
-        row = comboTable.push(encoded) - 1
-        indexOfCombo.set(key, row)
-      }
-      seenHere.add(row)
-    }
-    if (seenHere.size > 0) combosByProduct[productId] = [...seenHere]
-  }
+  const variationIndex = internVariations(combos)
 
   // Folded for the wire, exactly as the variation index above is, and for the
   // same reason - see lib/swap-pack.ts for what was in the 326 KB it replaces.
@@ -366,7 +292,7 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
       <FilterShell
         groups={offered}
         matrix={Object.fromEntries(matrix)}
-        variations={{ filterIds: variationFilterIds, combos: comboTable, byProduct: combosByProduct }}
+        variations={variationIndex}
         swaps={swapIndex}
         sortKeys={sortKeys}
         showSort={props.showSort !== 'no'}
