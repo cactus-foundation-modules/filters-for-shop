@@ -12,6 +12,10 @@ export type ShopFilterGridProps = {
   categorySlug?: string
   collectionSlug?: string
   tagSlug?: string
+  /** Everything from one supplier. Filled in for you on a supplier's own page
+   *  (shop's lib/inject-supplier-context.ts, which names this block as a string
+   *  rather than importing it); typed by hand anywhere else. */
+  supplierSlug?: string
   limit?: number
   columns?: number
   filterPosition?: string
@@ -113,6 +117,7 @@ export const shopFilterGridPuckComponent = {
     categorySlug: { type: 'text' as const, label: 'Category slug (optional)' },
     collectionSlug: { type: 'text' as const, label: 'Collection slug (optional)' },
     tagSlug: { type: 'text' as const, label: 'Tag slug (optional)' },
+    supplierSlug: { type: 'text' as const, label: 'Supplier slug (optional)' },
     limit: { type: 'number' as const, label: 'Number of products' },
     columns: { type: 'number' as const, label: 'Columns' },
     filterPosition: {
@@ -182,6 +187,7 @@ export const shopFilterGridPuckComponent = {
     categorySlug: '',
     collectionSlug: '',
     tagSlug: '',
+    supplierSlug: '',
     // 12, not 24. A grid's opening screenful is the slowest thing on a
     // storefront and the one every shopper waits for, so a NEW grid starts at
     // four rows of three rather than eight. A layout already saved keeps

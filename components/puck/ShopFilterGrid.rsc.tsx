@@ -79,6 +79,7 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
       ...categoryFilter,
       collectionSlug: props.collectionSlug || undefined,
       tagSlug: props.tagSlug || undefined,
+      supplierSlug: props.supplierSlug || undefined,
       // Filtering happens over exactly what is rendered, so whatever comes back
       // here is the honest ceiling of this block. Unpaged that is `limit` and
       // the default 100 clamp; paged, it is the whole category up to
@@ -320,6 +321,7 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
                 categorySlug: props.categorySlug || undefined,
                 collectionSlug: props.collectionSlug || undefined,
                 tagSlug: props.tagSlug || undefined,
+                supplierSlug: props.supplierSlug || undefined,
                 fetchCount,
               },
               layoutRef: props.layoutRef,
