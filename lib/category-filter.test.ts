@@ -32,6 +32,42 @@ describe('buildBranchIndex', () => {
     expect(branchOf.has('root')).toBe(false)
   })
 
+  // The top of the tree, asked for by a page that has no category of its own.
+  describe('at the top of the tree', () => {
+    const rootBranchOf = buildBranchIndex(nodes, null)
+
+    it('offers the parentless categories as the branches', () => {
+      expect(rootBranchOf.get('root')).toBe('root')
+    })
+
+    it('rolls every descendant up to the top-level category it sits under', () => {
+      expect(rootBranchOf.get('seating')).toBe('root')
+      expect(rootBranchOf.get('exec-leather')).toBe('root')
+      expect(rootBranchOf.get('rect')).toBe('root')
+    })
+
+    it('treats several parentless categories as separate branches', () => {
+      const flat: FltCategoryNode[] = [
+        { id: 'desks', name: 'Office Desks', slug: 'office-desks', parentId: null },
+        { id: 'rect', name: 'Rectangular desks', slug: 'rectangular-desks', parentId: 'desks' },
+        { id: 'chairs', name: 'Office Chairs', slug: 'office-chairs', parentId: null },
+      ]
+      const index = buildBranchIndex(flat, null)
+      expect(index.get('desks')).toBe('desks')
+      expect(index.get('rect')).toBe('desks')
+      expect(index.get('chairs')).toBe('chairs')
+    })
+
+    it('turns a deep filing into its top-level branch filter id', () => {
+      const flat: FltCategoryNode[] = [
+        { id: 'desks', name: 'Office Desks', slug: 'office-desks', parentId: null },
+        { id: 'rect', name: 'Rectangular desks', slug: 'rectangular-desks', parentId: 'desks' },
+      ]
+      const index = buildBranchIndex(flat, null)
+      expect(productBranchFilterIds(['rect'], index)).toEqual([categoryFilterId('desks')])
+    })
+  })
+
   it('survives a parent cycle without looping', () => {
     const cyclic: FltCategoryNode[] = [
       { id: 'a', name: 'A', slug: 'a', parentId: 'p' },

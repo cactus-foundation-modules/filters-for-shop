@@ -105,9 +105,11 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
   const productIds = products.map((p) => p.id)
 
   // The synthetic Category group: this page's sub-categories offered as a
-  // filter, built from the tree rather than any admin-defined rules. Only on
-  // category pages, and only when the category actually has children.
-  const wantCategoryFilter = Boolean(props.categorySlug) && props.categoryFilter !== 'no'
+  // filter, built from the tree rather than any admin-defined rules. On a page
+  // with no category of its own - a tag, a collection, a supplier, a filter page
+  // over the whole catalogue - the shop's top-level categories stand in, which
+  // is the widest cut a shopper can make on a shelf that spans the lot.
+  const wantCategoryFilter = props.categoryFilter !== 'no'
   // Card extras resolved exactly as shop's own grids do (ShopProductGrid.rsc):
   // without them the cards here carry no contributed variation photos, so the
   // carousel island never mounts with anything the filter's sourceId constraint
@@ -148,10 +150,15 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
   // counts, OR-within-group, the query string - with no shell changes at all.
   let categoryGroup: FltPublicGroup | null = null
   if (wantCategoryFilter) {
-    const current = allCategories.find((c) => c.slug === props.categorySlug)
-    const children = current ? allCategories.filter((c) => c.parentId === current.id) : []
-    if (current && children.length > 0) {
-      const branchOf = buildBranchIndex(allCategories, current.id)
+    // A slug naming no category is a page pointing at something deleted since,
+    // not an invitation to fall back to the top of the tree - it would answer a
+    // broken page with a filter over the whole shop.
+    const current = props.categorySlug ? allCategories.find((c) => c.slug === props.categorySlug) : null
+    const scoped = !props.categorySlug || current != null
+    const parentId = current ? current.id : null
+    const children = scoped ? allCategories.filter((c) => c.parentId === parentId) : []
+    if (children.length > 0) {
+      const branchOf = buildBranchIndex(allCategories, parentId)
       const matchedChildIds = new Set<string>()
       productIds.forEach((productId) => {
         const filterIds = productBranchFilterIds(categoryIdsByProduct.get(productId) ?? [], branchOf)

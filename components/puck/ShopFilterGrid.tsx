@@ -20,6 +20,10 @@ export type ShopFilterGridProps = {
   columns?: number
   filterPosition?: string
   showCounts?: string
+  // Whether the panel leads with a Category group. On a category page its ticks
+  // are that category's own sub-categories; on any other page - a tag, a
+  // collection, a supplier, a filter page over the whole catalogue - they are
+  // the shop's top-level categories.
   categoryFilter?: string
   showSort?: string
   // Which order the grid starts in. Blank (an older saved layout, from before
@@ -138,7 +142,9 @@ export const shopFilterGridPuckComponent = {
     },
     categoryFilter: {
       type: 'select' as const,
-      label: 'Category filter (category pages)',
+      // On a category page the ticks are its sub-categories; anywhere else they
+      // are the shop's top-level ones - see lib/category-filter.ts.
+      label: 'Category filter',
       options: [
         { value: 'yes', label: 'Yes' },
         { value: 'no', label: 'No' },
