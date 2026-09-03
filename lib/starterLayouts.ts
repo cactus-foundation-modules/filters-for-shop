@@ -23,6 +23,11 @@ export function shopSupplierFilterStarters() {
   return [
     {
       id: 'starter-shop-supplier-filtered',
+      // The one a site is seeded with, so a supplier page arrives WITH its filter
+      // panel rather than as a plain grid somebody has to go and rebuild. Beats
+      // shop's own unflagged supplier starters in planModuleSeedTemplates; a shop
+      // without this module installed still gets shop's plain one.
+      publishByDefault: true,
       name: 'Header, Write-up and Filtered Grid',
       description: 'The supplier\'s name, whatever you have written about them, then their whole range with the filter panel down the side.',
       data: {
