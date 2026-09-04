@@ -23,6 +23,15 @@ export type FltCombos = ReadonlyArray<ReadonlyArray<string>>
 // the per-variation detail when there is any.
 export type FltMatrixEntry = [productId: string, filterIds: string[], combos?: FltCombos]
 
+/** A product's variations as the bare filter-id lists the maths here works in.
+ *
+ *  The server side holds each variation's link beside its filters, because a
+ *  card has to be able to point at one; none of the selection maths has any use
+ *  for it, and takes this view instead. */
+export function comboFilterIds(variations: readonly { filterIds: string[] }[] | undefined): FltCombos | undefined {
+  return variations?.map((variation) => variation.filterIds)
+}
+
 export function matchesSelection(productFilterIds: string[], selection: FltSelection, combos?: FltCombos): boolean {
   if (selection.size === 0) return true
   const matched = new Set(productFilterIds)
@@ -108,4 +117,52 @@ export function pickSwapFilters(
     }
   }
   return out
+}
+
+// The most one single variation can be asked to answer: ONE ticked filter per
+// group, the first the product matches, in the owner's group order.
+//
+// Two ticks in the same group are alternatives - "Red or Blue" - and no
+// variation is both, so asking for all of them would never find a match and the
+// card would fall back to answering one question out of three. Across groups
+// they are requirements, and those a variation can carry together.
+export function pickCombinationFilters(
+  productFilterIds: string[],
+  selection: FltSelection,
+  orderedGroups: { id: string; filterIds: string[] }[],
+): string[] {
+  if (selection.size === 0) return []
+  const matched = new Set(productFilterIds)
+  const out: string[] = []
+  for (const group of orderedGroups) {
+    const ticked = selection.get(group.id)
+    if (!ticked || ticked.size === 0) continue
+    const first = group.filterIds.find((id) => ticked.has(id) && matched.has(id))
+    if (first) out.push(first)
+  }
+  return out
+}
+
+/**
+ * Which of a product's variations answers every one of these filters, as an
+ * index into its own combination list - or -1 where no single variation does.
+ *
+ * The index is what the caller needs, not the combination: the shell holds the
+ * variations' links in the same order, so the answer to "which variation" is
+ * also the answer to "which link". First match wins, and a product's
+ * combinations arrive in the owner's variant order, so the same tick always
+ * lands on the same variation.
+ *
+ * A wanted filter no variation carries at all - a price band, a spec on the
+ * parent listing - would rule every variation out, so those are dropped first:
+ * they are true of the whole listing however it is configured, and constrain
+ * nothing about which one to link to.
+ */
+export function pickVariationIndex(combos: FltCombos | undefined, wanted: readonly string[]): number {
+  if (!combos || combos.length === 0 || wanted.length === 0) return -1
+  const perVariation = new Set<string>()
+  for (const combo of combos) for (const id of combo) perVariation.add(id)
+  const must = wanted.filter((id) => perVariation.has(id))
+  if (must.length === 0) return -1
+  return combos.findIndex((combo) => must.every((id) => combo.includes(id)))
 }

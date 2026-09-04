@@ -49,7 +49,10 @@ export const EMPTY_SWAP_INDEX: FltSwapIndex = { g: [], f: [], p: {} }
 
 // The longest start every one of these shares. One href is entirely its own
 // prefix, which is lossless and costs a byte or two.
-function commonPrefix(values: string[]): string {
+//
+// Exported because the variation index folds its own links the same way and for
+// the same reason - see internVariations.
+export function commonPrefix(values: string[]): string {
   if (values.length === 0) return ''
   let prefix = values[0] ?? ''
   for (const value of values.slice(1)) {

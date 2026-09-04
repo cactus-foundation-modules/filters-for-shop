@@ -18,7 +18,7 @@ import { FilterShell, type FltPublicGroup } from '@/modules/filters-for-shop/com
 import { shopFilterCss } from '@/modules/filters-for-shop/components/public/filter-css'
 import { renderTaggedCards } from '@/modules/filters-for-shop/lib/tagged-cards'
 import { loadFilterGridCards } from '@/modules/filters-for-shop/lib/grid-cards-action'
-import { matchesSelection } from '@/modules/filters-for-shop/lib/filter-logic'
+import { comboFilterIds, matchesSelection } from '@/modules/filters-for-shop/lib/filter-logic'
 import { preselectByGroup } from '@/modules/filters-for-shop/lib/preselect'
 import { packSwaps } from '@/modules/filters-for-shop/lib/swap-pack'
 import { shopFilterGridPuckComponent, type ShopFilterGridProps } from './ShopFilterGrid'
@@ -257,7 +257,7 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
   const page = onDemand ? Math.max(1, Math.floor(Number(props.page)) || 1) : 1
   const from = (page - 1) * pageSize
   const matchingOrdered = onDemand
-    ? ordered.filter((id) => matchesSelection(matrix.get(id) ?? [], startSelection, combos.get(id)))
+    ? ordered.filter((id) => matchesSelection(matrix.get(id) ?? [], startSelection, comboFilterIds(combos.get(id))))
     : ordered
   const renderIds = onDemand ? matchingOrdered.slice(from, from + pageSize) : ordered
   // The pictures, tags and contributed extras - and ONLY for the cards this

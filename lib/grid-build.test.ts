@@ -63,10 +63,15 @@ describe('applyPriceBands', () => {
 })
 
 describe('internVariations', () => {
+  // One product's variations, in the owner's order, each with its own page.
+  function combo(filterIds: string[], href: string) {
+    return { filterIds, href }
+  }
+
   it('writes each filter id and each distinct combination once', () => {
     const index = internVariations(new Map([
-      ['a', [['blue', 'oak'], ['oak', 'blue'], ['green', 'oak']]],
-      ['b', [['blue', 'oak']]],
+      ['a', [combo(['blue', 'oak'], '/desk-blue-oak'), combo(['oak', 'blue'], '/desk-oak-blue'), combo(['green', 'oak'], '/desk-green-oak')]],
+      ['b', [combo(['blue', 'oak'], '/chair-blue-oak')]],
     ]))
     expect(index.filterIds).toEqual(['blue', 'oak', 'green'])
     expect(index.combos).toEqual([[0, 1], [1, 2]])
@@ -74,8 +79,24 @@ describe('internVariations', () => {
     expect(index.byProduct).toEqual({ a: [0, 1], b: [0] })
   })
 
+  it('keeps one link per combination, in the same order as the ids', () => {
+    const index = internVariations(new Map([
+      ['a', [combo(['blue', 'oak'], '/desk-blue-oak'), combo(['oak', 'blue'], '/desk-oak-blue'), combo(['green', 'oak'], '/desk-green-oak')]],
+    ]))
+    // The duplicate combination keeps the FIRST variation's link, so a link and
+    // the ids beside it always describe the same variation.
+    expect(index.links?.a).toEqual(['/desk-', ['blue-oak', 'green-oak']])
+  })
+
+  it('folds a lone variation losslessly', () => {
+    const index = internVariations(new Map([['a', [combo(['blue'], '/desk-blue')]]]))
+    expect(index.links?.a).toEqual(['/desk-blue', ['']])
+  })
+
   it('leaves a product with no variations out entirely', () => {
-    expect(internVariations(new Map([['a', []]])).byProduct).toEqual({})
+    const index = internVariations(new Map([['a', []]]))
+    expect(index.byProduct).toEqual({})
+    expect(index.links).toEqual({})
   })
 })
 

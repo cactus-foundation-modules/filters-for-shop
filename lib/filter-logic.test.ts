@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { facetCount, matchesSelection, pickSwapFilter, pickSwapFilters, type FltMatrixEntry, type FltSelection } from './filter-logic'
+import { facetCount, matchesSelection, pickCombinationFilters, pickSwapFilter, pickSwapFilters, pickVariationIndex, type FltMatrixEntry, type FltSelection } from './filter-logic'
 
 const sel = (entries: [string, string[]][]): FltSelection => new Map(entries.map(([g, ids]) => [g, new Set(ids)]))
 
@@ -127,5 +127,56 @@ describe('pickSwapFilters', () => {
   it('agrees with pickSwapFilter on the first pick', () => {
     const selection = sel([['colour', ['green']], ['finish', ['oak']]])
     expect(pickSwapFilters(['green', 'oak'], selection, groups)[0]).toBe(pickSwapFilter(['green', 'oak'], selection, groups))
+  })
+})
+
+describe('pickCombinationFilters', () => {
+  const groups = [
+    { id: 'colour', filterIds: ['blue', 'green'] },
+    { id: 'finish', filterIds: ['oak', 'ash'] },
+  ]
+
+  it('takes one tick per group - the ones a single variation can carry at once', () => {
+    const selection = sel([['colour', ['green', 'blue']], ['finish', ['oak']]])
+    expect(pickCombinationFilters(['blue', 'green', 'oak'], selection, groups)).toEqual(['blue', 'oak'])
+  })
+
+  it('skips a group the product answers none of', () => {
+    const selection = sel([['colour', ['blue']], ['finish', ['ash']]])
+    expect(pickCombinationFilters(['blue', 'oak'], selection, groups)).toEqual(['blue'])
+  })
+
+  it('returns empty with nothing chosen', () => {
+    expect(pickCombinationFilters(['blue'], sel([]), groups)).toEqual([])
+  })
+})
+
+describe('pickVariationIndex', () => {
+  // One product sold in blue oak, blue ash and green oak, in that order.
+  const combos = [['blue', 'oak'], ['blue', 'ash'], ['green', 'oak']]
+
+  it('finds the variation carrying every wanted filter', () => {
+    expect(pickVariationIndex(combos, ['green', 'oak'])).toBe(2)
+    expect(pickVariationIndex(combos, ['blue', 'ash'])).toBe(1)
+  })
+
+  it('prefers the first variation that will do', () => {
+    expect(pickVariationIndex(combos, ['blue'])).toBe(0)
+  })
+
+  it('says so when no single variation carries the lot', () => {
+    expect(pickVariationIndex(combos, ['green', 'ash'])).toBe(-1)
+  })
+
+  it('ignores a filter no variation carries, rather than ruling them all out', () => {
+    // A price band or a spec on the parent listing is true however the product
+    // is configured, so it cannot decide which variation to link to.
+    expect(pickVariationIndex(combos, ['under-200', 'green'])).toBe(2)
+  })
+
+  it('has no answer without variations or without a choice', () => {
+    expect(pickVariationIndex(undefined, ['blue'])).toBe(-1)
+    expect(pickVariationIndex(combos, [])).toBe(-1)
+    expect(pickVariationIndex(combos, ['under-200'])).toBe(-1)
   })
 })
