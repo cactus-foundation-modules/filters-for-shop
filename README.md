@@ -35,8 +35,9 @@ themselves.
   default 7rem).
 - **Variation-aware product cards.** While Blue is ticked, a matching product's
   card swaps to its blue variation's own photo, and clicking it opens the
-  product with the blue options already pre-selected (via the variation's own
-  deep link - no shop changes needed).
+  product with blue - and only blue - already chosen (the ticked options ride
+  on the link as parameters shop-variations already reads; no shop changes
+  needed). Options nobody filtered on are left for the shopper.
 - **A proper filter panel.** Live product counts (facet-style: a tick never
   counts against its own siblings), active-filter chips, clear all, collapsible
   groups with per-group selection badges, long tick lists folded behind

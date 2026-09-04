@@ -66,7 +66,7 @@ export async function renderSearchFilterGrid(
   ])
 
   const [{ matrix, combos, swaps }, items] = await Promise.all([
-    getProductFilterMatches(ids, groups, config.productUrlStyle),
+    getProductFilterMatches(ids, groups),
     buildGridCardItems(products),
   ])
 

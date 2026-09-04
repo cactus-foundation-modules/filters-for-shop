@@ -1,5 +1,4 @@
 import { priceInBand, type FltGroup } from '@/modules/filters-for-shop/lib/types'
-import { commonPrefix } from '@/modules/filters-for-shop/lib/swap-pack'
 import type { FltCombo } from '@/modules/filters-for-shop/lib/db/matching'
 import type { FltPublicGroup, FltVariationIndex } from '@/modules/filters-for-shop/components/public/FilterShell'
 
@@ -38,24 +37,16 @@ export function applyPriceBands(
 /** Intern the per-variation detail for the wire: every filter id written once,
  *  every distinct combination once, and a product naming its combinations by
  *  index. Spelled out instead, a whole-catalogue page carries about a megabyte
- *  of repeated UUIDs - see FltVariationIndex.
- *
- *  Each combination's own link travels alongside, in the SAME order, so the
- *  shell that finds the variation answering every tick also has the address to
- *  send the click to. Folded per product against the slug its variations share,
- *  the way the swaps are - a variation link differs from its neighbour by a few
- *  characters at the end and nothing else. */
+ *  of repeated UUIDs - see FltVariationIndex. */
 export function internVariations(combos: Map<string, FltCombo[]>): FltVariationIndex {
   const filterIds: string[] = []
   const indexOfFilter = new Map<string, number>()
   const indexOfCombo = new Map<string, number>()
   const comboTable: number[][] = []
   const byProduct: Record<string, number[]> = {}
-  const links: Record<string, [string, string[]]> = {}
   for (const [productId, list] of combos) {
     const seenHere = new Set<number>()
-    const hrefs: string[] = []
-    for (const { filterIds: combo, href } of list) {
+    for (const { filterIds: combo } of list) {
       const encoded = combo
         .map((filterId) => {
           let at = indexOfFilter.get(filterId)
@@ -72,19 +63,13 @@ export function internVariations(combos: Map<string, FltCombo[]>): FltVariationI
         row = comboTable.push(encoded) - 1
         indexOfCombo.set(key, row)
       }
-      // A combination this product already has is the same combination, and the
-      // earlier variation is the one whose link it keeps - so the href list stays
-      // aligned with the id list, entry for entry.
-      if (seenHere.has(row)) continue
+      // A combination this product already has is the same combination.
       seenHere.add(row)
-      hrefs.push(href)
     }
     if (seenHere.size === 0) continue
     byProduct[productId] = [...seenHere]
-    const prefix = commonPrefix(hrefs)
-    links[productId] = [prefix, hrefs.map((href) => href.slice(prefix.length))]
   }
-  return { filterIds, combos: comboTable, byProduct, links }
+  return { filterIds, combos: comboTable, byProduct }
 }
 
 /** The groups this page actually offers.

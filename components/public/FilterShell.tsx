@@ -1,13 +1,13 @@
 'use client'
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { facetCount, matchesSelection, pickCombinationFilters, pickSwapFilters, pickVariationIndex, type FltMatrixEntry, type FltSelection } from '@/modules/filters-for-shop/lib/filter-logic'
+import { facetCount, matchesSelection, pickCombinationFilters, pickSwapFilters, type FltMatrixEntry, type FltSelection } from '@/modules/filters-for-shop/lib/filter-logic'
 import { applySelectionToParams, preselectByGroup, selectionFromParams } from '@/modules/filters-for-shop/lib/preselect'
 import { isImageSwatch, type FltControlType } from '@/modules/filters-for-shop/lib/types'
 import { pageHref } from '@/modules/shop/lib/page-href'
 import { FLT_SORT_OPTIONS, FLT_SORT_RECOMMENDED_PARAM, isFltSortValue, sortProductIds, sortValueFromParam, type FltSortKey, type FltSortValue } from '@/modules/filters-for-shop/lib/sort'
 import { EMPTY_SWAP_INDEX, unpackSwaps, type FltSwapIndex } from '@/modules/filters-for-shop/lib/swap-pack'
-import { variationHref } from '@/modules/filters-for-shop/lib/variation-links'
+import { withOptionParams } from '@/modules/filters-for-shop/lib/option-param'
 import type { FltSwap } from '@/modules/filters-for-shop/lib/db/matching'
 
 // The serialisable shape the RSC half hands over: no rules, no positions - just
@@ -24,17 +24,10 @@ export type FltPublicGroup = { id: string; name: string; slug: string; controlTy
 // put about a megabyte of repeated UUIDs into the HTML. Folded like this the
 // same page is well under a tenth of that.
 //
-// The links ride along for the same reason the combinations do: once the shell
-// knows WHICH variation answers every tick, the click has to go to that
-// variation's own page, and asking the server for the address at click time
-// would put a round trip in front of every card.
 export type FltVariationIndex = {
   filterIds: string[]
   combos: number[][]
   byProduct: Record<string, number[]>
-  /** product id -> [the address its variations share, then one tail per entry
-   *  in byProduct, in the same order]. Absent on a shop with no variations. */
-  links?: Record<string, [string, string[]]>
 }
 
 export type FilterShellProps = {
@@ -47,7 +40,7 @@ export type FilterShellProps = {
   // red leather chair. Absent on a shop with no variations module.
   variations?: FltVariationIndex
   // product id -> filter id -> the variation the card borrows when that filter
-  // is ticked: its photo, and its own deep link (which pre-selects the options).
+  // is ticked: its photo, and the option parameter its tick adds to the link.
   //
   // Folded rather than spelled out, the same way `variations` is: on a real shelf
   // the spelled-out version was a third of a megabyte of repeated filter ids,
@@ -155,14 +148,15 @@ export function filterPageNumbers(current: number, last: number): (number | '\u2
 }
 
 // Re-dress one card for the ticked filters: show the matching variations'
-// photos and point the link at a variation's own page, which opens the parent
-// product with that variation's options already chosen.
+// photos and put the ticked options on the link, so the product page opens with
+// those options chosen and NOTHING else.
 //
-// `deepHref` is the variation answering EVERY tick, where one does. The first
-// swap is the fallback, and it answers only the first tick: on a card with three
-// questions answered it opened the product on that one option and on whatever
-// the other two happened to be, which is worse than useless - the shopper has to
-// notice it is wrong before they can put it right.
+// `params` is one option parameter per answered question. The link used to be a
+// variation's own address instead, which opens the product on that variation's
+// WHOLE combination: tick a finish and the product page also arrived with the
+// colour, the arms and the base answered, by a variation the shopper never
+// chose. Options nobody filtered on are not the filter's to answer, so they are
+// left for the shopper - see lib/option-param.ts.
 //
 // Cards with shop's carousel island (`.shop-card-media`) get the polite version:
 // the allowed variation ids go into `data-shop-media-sources` on the card and a
@@ -175,14 +169,17 @@ export function filterPageNumbers(current: number, last: number): (number | '\u2
 // Cards with a plain server-rendered <img> (single photo, no island) keep the
 // direct src swap. Originals are parked in data attributes on first touch so
 // unticking restores them exactly.
-function dressCard(el: HTMLElement, swapList: FltSwap[], swapImages: boolean, preselect: boolean, deepHref: string | null) {
+function dressCard(el: HTMLElement, swapList: FltSwap[], swapImages: boolean, preselect: boolean, params: ReadonlyArray<string | null | undefined>) {
   const primary = swapList[0] ?? null
   // The card's navigation anchor: the wrapper itself on the old anchor-shaped
   // card, the stretched `.shop-card-link` sibling on the current wrapper.
   const link = el instanceof HTMLAnchorElement ? el : el.querySelector<HTMLAnchorElement>('a.shop-card-link')
   if (link && preselect) {
+    // The address the server rendered is parked on first touch, so unticking
+    // restores it exactly and a second tick never stacks parameters on top of
+    // the last lot.
     if (link.dataset.fltHref === undefined) link.dataset.fltHref = link.getAttribute('href') ?? ''
-    link.setAttribute('href', deepHref ?? primary?.href ?? link.dataset.fltHref)
+    link.setAttribute('href', withOptionParams(link.dataset.fltHref, params))
   }
   if (!swapImages) return
   if (el.querySelector('.shop-card-media')) {
@@ -515,14 +512,13 @@ export function FilterShell({ groups, matrix, variations = EMPTY_VARIATIONS, swa
       const swapList = swapFilterIds
         .map((id) => swaps.get(productId)?.get(id))
         .filter((s): s is FltSwap => s != null)
-      // Which variation answers every question the shopper has answered, and
-      // where its page is. Worked out from the same ticks the photos come from,
-      // so the card a shopper clicks and the product page they land on are
-      // describing the same thing.
-      const combos = combosByProduct.get(productId)
+      // The answers the click should carry: one ticked filter per group, as the
+      // option parameters that pick them. Worked out from the same ticks the
+      // photos come from, so the card a shopper clicks and the product page they
+      // land on are describing the same thing.
       const wanted = ok ? pickCombinationFilters(matched, selected, orderedGroups) : []
-      const deepHref = variationHref(variations.links, productId, pickVariationIndex(combos, wanted))
-      dressCard(el, swapList, swapImages, preselectOnClick, deepHref)
+      const params = wanted.map((id) => swaps.get(productId)?.get(id)?.param)
+      dressCard(el, swapList, swapImages, preselectOnClick, params)
     }
     // Counted off the matrix rather than off the cards on screen. They are the
     // same number whenever every card is in the DOM, and only the matrix knows

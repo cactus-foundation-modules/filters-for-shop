@@ -300,39 +300,39 @@ suite('filters-for-shop matching SQL, against a real Postgres', () => {
   }, 300_000)
 
   it('matches a listing on every filter any of its variations resolves', async () => {
-    const matches = await db.matching.getProductFilterMatches([deskId], groups, 'ROOT')
+    const matches = await db.matching.getProductFilterMatches([deskId], groups)
     expect([...(matches.matrix.get(deskId) ?? [])].sort()).toEqual(
       [filterId.blue!, filterId.green!, filterId.oak!, filterId.ash!].sort(),
     )
   })
 
-  it('gives every distinct combination its own link, in the owner variant order', async () => {
-    const matches = await db.matching.getProductFilterMatches([deskId], groups, 'ROOT')
+  it('gives every distinct combination one entry, in the owner variant order', async () => {
+    const matches = await db.matching.getProductFilterMatches([deskId], groups)
     const combos = matches.combos.get(deskId) ?? []
+    // The fourth variation repeats the third's combination, so it folds away.
     expect(combos.map((c) => [...c.filterIds].sort())).toEqual([
       [filterId.blue!, filterId.oak!].sort(),
       [filterId.ash!, filterId.blue!].sort(),
       [filterId.green!, filterId.oak!].sort(),
     ])
-    // The fourth variation repeats the third's combination, so it is folded away
-    // and the EARLIER one's link is the one that survives.
-    expect(combos.map((c) => c.href)).toEqual(['/desk-blue-oak', '/desk-blue-ash', '/desk-green-oak'])
   })
 
-  it('still borrows one variation per filter for the card swap', async () => {
-    const matches = await db.matching.getProductFilterMatches([deskId], groups, 'ROOT')
+  it('borrows one variation per filter for the card swap, and names its option', async () => {
+    const matches = await db.matching.getProductFilterMatches([deskId], groups)
     const swaps = matches.swaps.get(deskId)
-    expect(swaps?.get(filterId.blue!)?.href).toBe('/desk-blue-oak')
+    // The parameter names the ticked filter's own option and nothing else, so a
+    // click on a blue-ticked card leaves the finish for the shopper to choose.
+    expect(swaps?.get(filterId.blue!)?.param).toBe('colour=blue')
     expect(swaps?.get(filterId.blue!)?.image).toBe('https://cdn.example/desks/blue-oak.jpg')
-    expect(swaps?.get(filterId.ash!)?.href).toBe('/desk-blue-ash')
+    expect(swaps?.get(filterId.ash!)?.param).toBe('finish=ash')
     // A variation whose child carries no photograph is a swap with no image, not
-    // a missing swap: the link still moves, the picture stays put.
-    expect(swaps?.get(filterId.green!)?.href).toBe('/desk-green-oak')
+    // a missing swap: the link still gains its parameter, the picture stays put.
+    expect(swaps?.get(filterId.green!)?.param).toBe('colour=green')
     expect(swaps?.get(filterId.green!)?.image).toBe(null)
   })
 
   it('answers nothing at all for a product nobody asked about', async () => {
-    const matches = await db.matching.getProductFilterMatches([], groups, 'ROOT')
+    const matches = await db.matching.getProductFilterMatches([], groups)
     expect(matches.matrix.size).toBe(0)
     expect(matches.combos.size).toBe(0)
   })

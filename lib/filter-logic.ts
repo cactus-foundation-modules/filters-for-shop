@@ -142,27 +142,3 @@ export function pickCombinationFilters(
   }
   return out
 }
-
-/**
- * Which of a product's variations answers every one of these filters, as an
- * index into its own combination list - or -1 where no single variation does.
- *
- * The index is what the caller needs, not the combination: the shell holds the
- * variations' links in the same order, so the answer to "which variation" is
- * also the answer to "which link". First match wins, and a product's
- * combinations arrive in the owner's variant order, so the same tick always
- * lands on the same variation.
- *
- * A wanted filter no variation carries at all - a price band, a spec on the
- * parent listing - would rule every variation out, so those are dropped first:
- * they are true of the whole listing however it is configured, and constrain
- * nothing about which one to link to.
- */
-export function pickVariationIndex(combos: FltCombos | undefined, wanted: readonly string[]): number {
-  if (!combos || combos.length === 0 || wanted.length === 0) return -1
-  const perVariation = new Set<string>()
-  for (const combo of combos) for (const id of combo) perVariation.add(id)
-  const must = wanted.filter((id) => perVariation.has(id))
-  if (must.length === 0) return -1
-  return combos.findIndex((combo) => must.every((id) => combo.includes(id)))
-}

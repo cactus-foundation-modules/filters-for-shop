@@ -115,7 +115,7 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
   // carousel island never mounts with anything the filter's sourceId constraint
   // could match - the very photos the swap borrows.
   const [{ matrix, combos, swaps }, fromPrices, allCategories, categoryIdsByProduct] = await Promise.all([
-    getProductFilterMatches(productIds, groups, config.productUrlStyle),
+    getProductFilterMatches(productIds, groups),
     resolveCardFromPrices(productIds),
     wantCategoryFilter ? listCategories() : Promise.resolve([]),
     wantCategoryFilter ? getProductCategoryIdsForProducts(productIds) : Promise.resolve(new Map<string, string[]>()),
