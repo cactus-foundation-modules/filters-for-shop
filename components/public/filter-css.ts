@@ -156,7 +156,7 @@ export function shopFilterCss({ tabletBp, mobileBp }: Breakpoints): string {
   .flt-chips-top{display:none}
   .flt-chips-panel{display:flex;gap:8px;margin:12px 0 4px}
   .flt-chips-panel .flt-chip{max-width:100%;padding:9px 13px;font-size:13px;line-height:1.25;text-align:left}
-  .flt-fab{position:fixed;left:50%;bottom:calc(18px + env(safe-area-inset-bottom));transform:translateX(-50%);z-index:1200;display:inline-flex;align-items:center;gap:8px;padding:12px 20px;font-size:14px;font-weight:600;color:var(--color-fg);background:var(--color-surface);border:1px solid var(--color-border);border-radius:999px;cursor:pointer;line-height:1;box-shadow:0 4px 18px rgb(0 0 0/.22)}
+  .flt-fab{position:fixed;left:50%;bottom:calc(18px + env(safe-area-inset-bottom) + var(--cactus-bottom-bar-offset, 0px));transform:translateX(-50%);z-index:1200;display:inline-flex;align-items:center;gap:8px;padding:12px 20px;font-size:14px;font-weight:600;color:var(--color-fg);background:var(--color-surface);border:1px solid var(--color-border);border-radius:999px;cursor:pointer;line-height:1;box-shadow:0 4px 18px rgb(0 0 0/.22)}
   .flt-fab-icon{width:15px;height:15px}
   .flt-fab-badge{display:inline-flex;align-items:center;justify-content:center;min-width:19px;height:19px;padding:0 5px;font-size:11px;font-weight:700;color:var(--color-primary-contrast,#fff);background:var(--color-primary);border-radius:999px}
   .flt-scrim{display:block;position:fixed;inset:0;z-index:${SHEET_Z};background:rgb(0 0 0/.45);opacity:0;pointer-events:none;transition:opacity .25s ease}
