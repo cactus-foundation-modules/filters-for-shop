@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { requireShopUser } from '@/modules/shop/lib/access'
 import { slugify } from '@/modules/shop/lib/slug'
+import { FaqSetBodySchema } from '@/modules/shop/lib/faq'
 import {
   deleteCollection,
   ensureUniqueCollectionSlug,
@@ -33,6 +34,9 @@ const PutBody = z.object({
   metaDescription: z.string().max(400).nullable().optional(),
   ogImage: z.string().max(2000).nullable().optional(),
   noindex: z.boolean().optional(),
+  // This page's own questions (migration 005). Shop's schema, so the caps and
+  // the blank-row trimming are the same everywhere FAQs are written.
+  faqs: FaqSetBodySchema.nullable().optional(),
   filterIds: z.array(z.string()).max(50).optional(),
   // The designed intro, as the builder sends it. Shape-checked no further than
   // "an object": it is Puck's document and Puck owns its schema.

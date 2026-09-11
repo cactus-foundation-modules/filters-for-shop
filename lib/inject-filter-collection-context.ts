@@ -3,7 +3,7 @@ import type { FltPuckData } from '@/modules/filters-for-shop/lib/types'
 // The blocks that resolve the page's record from its slug. The grid is not one
 // of them - it is handed the source and the preselection outright below, and a
 // slug it never reads would only be a prop to wonder about later.
-const CONTEXT_BLOCKS = new Set(['FilterCollectionHeader', 'FilterCollectionIntro'])
+const CONTEXT_BLOCKS = new Set(['FilterCollectionHeader', 'FilterCollectionIntro', 'FilterCollectionFaqs'])
 
 type FilterCollectionContext = {
   /** Which page of a paged grid to render, from `?page=` (1 unless asked). */

@@ -1,3 +1,4 @@
+import type { ShpFaqSet } from '@/modules/shop/lib/faq'
 // Shared types for filters-for-shop. Groups hold filters, filters hold rules;
 // a rule is a (name, label) pair matched against shop-variations option values
 // (source OPTION) or product-attributes values (source ATTRIBUTE). PRICE-kind
@@ -108,6 +109,10 @@ export type FltCollection = {
   metaDescription: string | null
   ogImage: string | null
   noindex: boolean
+  // This page's own frequently asked questions, already parsed out of the jsonb
+  // column by shop's lib/faq.ts (migration 005). Never null: a page with nothing
+  // written reads as an empty set that still shows the shop-wide questions.
+  faqs: ShpFaqSet
   position: number
   updatedAt: Date
   // The filters that arrive ticked, in the order they were picked.

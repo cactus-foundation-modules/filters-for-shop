@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/db/prisma'
 import { Prisma } from '@prisma/client'
 import type { FltCollection, FltCollectionSource, FltCollectionStatus, FltPuckData } from '@/modules/filters-for-shop/lib/types'
+import { normaliseFaqSet, type ShpFaqSet } from '@/modules/shop/lib/faq'
 
 // Filter collections and the filters each one arrives with. Read in two flat
 // queries and stitched here, same shape as lib/db/filters.ts: the admin screen
@@ -24,13 +25,17 @@ function rowToCollection(row: Record<string, unknown>, filterIds: string[]): Flt
     noindex: (row.noindex as boolean) ?? false,
     position: row.position as number,
     updatedAt: row.updated_at as Date,
+    // Migration 005. Parsed rather than cast, on shop's own reader: a set
+    // written by an older editor, or by hand, must read as "no questions"
+    // rather than take the page down.
+    faqs: normaliseFaqSet(row.faqs),
     filterIds,
   }
 }
 
 const COLLECTION_COLUMNS = Prisma.sql`
   "id", "name", "slug", "status", "source_type", "source_slug", "short_description",
-  "intro_puck", "meta_title", "meta_description", "og_image", "noindex", "position", "updated_at"
+  "intro_puck", "meta_title", "meta_description", "og_image", "noindex", "faqs", "position", "updated_at"
 `
 
 async function filterIdsFor(collectionIds: string[]): Promise<Map<string, string[]>> {
@@ -162,6 +167,10 @@ export type FltCollectionUpdate = {
   metaDescription?: string | null
   ogImage?: string | null
   noindex?: boolean
+  // This page's own questions. Stored on shop's own terms (see updateProduct):
+  // an empty set that still inherits is NULL, an empty set that does not is a
+  // real answer - "this page shows no questions at all".
+  faqs?: ShpFaqSet | null
 }
 
 // Every nullable text field is tri-state: undefined leaves it alone, null clears
@@ -180,6 +189,11 @@ export async function updateCollection(id: string, fields: FltCollectionUpdate):
       "meta_description" = CASE WHEN ${fields.metaDescription !== undefined} THEN ${fields.metaDescription ?? null} ELSE "meta_description" END,
       "og_image" = CASE WHEN ${fields.ogImage !== undefined} THEN ${fields.ogImage ?? null} ELSE "og_image" END,
       "noindex" = COALESCE(${fields.noindex ?? null}::boolean, "noindex"),
+      "faqs" = CASE WHEN ${fields.faqs !== undefined} THEN ${
+        fields.faqs != null && (fields.faqs.items.length > 0 || !fields.faqs.inherit)
+          ? JSON.stringify(fields.faqs)
+          : null
+      }::jsonb ELSE "faqs" END,
       "updated_at" = CURRENT_TIMESTAMP
     WHERE "id" = ${id}
   `

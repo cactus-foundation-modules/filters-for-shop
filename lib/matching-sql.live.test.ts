@@ -128,6 +128,7 @@ suite('filters-for-shop matching SQL, against a real Postgres', () => {
 
   type DbModules = {
     matching: typeof import('@/modules/filters-for-shop/lib/db/matching')
+    collections: typeof import('@/modules/filters-for-shop/lib/db/collections')
     prisma: typeof import('@/lib/db/prisma')
   }
   let db: DbModules
@@ -157,6 +158,7 @@ suite('filters-for-shop matching SQL, against a real Postgres', () => {
 
     db = {
       matching: await import('@/modules/filters-for-shop/lib/db/matching'),
+      collections: await import('@/modules/filters-for-shop/lib/db/collections'),
       prisma: await import('@/lib/db/prisma'),
     }
 
@@ -335,5 +337,42 @@ suite('filters-for-shop matching SQL, against a real Postgres', () => {
     const matches = await db.matching.getProductFilterMatches([], groups)
     expect(matches.matrix.size).toBe(0)
     expect(matches.combos.size).toBe(0)
+  })
+
+  // A filter page's own FAQs (migration 005). updateCollection is one long raw
+  // UPDATE of CASE expressions, and the new jsonb clause sits in the middle of
+  // it - a cast or a comma wrong there breaks EVERY edit on the screen, not just
+  // the questions, and nothing short of Postgres would say so.
+  it('writes and reads a filter page own questions without disturbing the rest of the row', async () => {
+    const { id } = await db.collections.createCollection({
+      name: 'Green Office Chairs',
+      slug: `green-chairs-${Date.now().toString(36)}`,
+      sourceType: 'ALL',
+      sourceSlug: null,
+    })
+
+    await db.collections.updateCollection(id, {
+      shortDescription: 'Every chair we sell in green.',
+      faqs: { items: [{ question: 'Is green in stock?', answer: 'Usually, yes.' }], inherit: false },
+    })
+
+    const saved = await db.collections.getCollection(id)
+    expect(saved?.faqs.items).toEqual([{ question: 'Is green in stock?', answer: 'Usually, yes.' }])
+    expect(saved?.faqs.inherit).toBe(false)
+    // The clause must not have trampled its neighbours in that one statement.
+    expect(saved?.shortDescription).toBe('Every chair we sell in green.')
+    expect(saved?.name).toBe('Green Office Chairs')
+
+    // An edit that says nothing about questions leaves them exactly as they were.
+    await db.collections.updateCollection(id, { shortDescription: 'Changed.' })
+    const after = await db.collections.getCollection(id)
+    expect(after?.faqs.items).toHaveLength(1)
+    expect(after?.shortDescription).toBe('Changed.')
+
+    // Emptied and still inheriting stores NULL, which reads back as the empty
+    // inheriting set - the same rule shop's own columns follow.
+    await db.collections.updateCollection(id, { faqs: { items: [], inherit: true } })
+    const cleared = await db.collections.getCollection(id)
+    expect(cleared?.faqs).toEqual({ items: [], inherit: true })
   })
 })

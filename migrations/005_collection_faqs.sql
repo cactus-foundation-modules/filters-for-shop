@@ -1,0 +1,34 @@
+-- ---------------------------------------------------------------------------
+-- 005 - Frequently asked questions on a filter collection page.
+--
+-- Shop's migration 055 gave questions three homes - the product, its category
+-- chain, and the shop - and its 057 added a fourth on a shop collection. A
+-- filter collection page had none of them: it is this module's own record, at
+-- its own address, and shop has no business reading a table it does not own.
+--
+--   flt_collections.faqs
+--       The same shape shop's columns hold, and parsed by the same code
+--       (shop's lib/faq.ts, imported here - see the FAQ block):
+--
+--         { "items": [ { "question": "...", "answer": "..." } ], "inherit": true }
+--
+--       `inherit` false means this page answers for itself and the shop-wide
+--       questions are left off it.
+--
+-- A filter collection is not a tree and has no parent, so the walk is one rung
+-- and then the shop-wide list - exactly as a shop collection's is. And like a
+-- shop collection's, these questions are for the PAGE. They are never inherited
+-- by the products the page happens to list: a product can appear on any number
+-- of filter pages, and inheriting from all of them would answer one question
+-- several different ways with no rule for which wins.
+--
+-- No index: read by slug, alongside the row it hangs off.
+--
+-- NOT also added to 003_filter_collections.sql, unlike the way shop's own
+-- fresh-install file carries its columns: 003 has already been released and
+-- already run on live installs, so its bytes are frozen (scripts/
+-- check-frozen-migrations.mjs, and the 2026-09-08 incident behind it). A fresh
+-- install runs 001 through 005 in order and lands in exactly the same place.
+-- ---------------------------------------------------------------------------
+
+ALTER TABLE "flt_collections" ADD COLUMN IF NOT EXISTS "faqs" JSONB;

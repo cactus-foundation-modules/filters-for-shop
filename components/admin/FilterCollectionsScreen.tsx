@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FltCollection, FltCollectionSource, FltGroup } from '@/modules/filters-for-shop/lib/types'
 import { isImageSwatch } from '@/modules/filters-for-shop/lib/types'
+import { FaqListEditor } from '@/modules/shop/components/admin/FaqListEditor'
+import type { ShpFaqItem, ShpFaqSet } from '@/modules/shop/lib/faq'
 
 const BASE = '/api/m/filters-for-shop/admin'
 
@@ -270,6 +272,7 @@ function CollectionCard({ collection, groups, sources, adminPath, busy, send, op
   const [ogImage, setOgImage] = useState(collection.ogImage ?? '')
   const [sourceType, setSourceType] = useState<FltCollectionSource>(collection.sourceType)
   const [sourceSlug, setSourceSlug] = useState(collection.sourceSlug ?? '')
+  const [faqs, setFaqs] = useState<ShpFaqSet>(collection.faqs)
 
   const picked = useMemo(() => new Set(collection.filterIds), [collection.filterIds])
   const sourceOptions = optionsFor(sources, sourceType)
@@ -292,6 +295,7 @@ function CollectionCard({ collection, groups, sources, adminPath, busy, send, op
       ogImage,
       sourceType,
       sourceSlug: sourceType === 'ALL' ? null : sourceSlug,
+      faqs,
     })
   }
 
@@ -414,6 +418,27 @@ function CollectionCard({ collection, groups, sources, adminPath, busy, send, op
             <label style={{ display: 'grid', gap: '0.25rem' }}>
               <span style={{ fontSize: '0.8125rem' }}>Sharing picture</span>
               <input className="form-control" value={ogImage} onChange={(e) => setOgImage(e.target.value)} placeholder="Paste a picture address" />
+            </label>
+          </div>
+
+          {/* The questions answered on this page. Shop's own editor, so a site
+              writes them the same way here, on a category and on a product. They
+              belong to the PAGE: the products it lists never inherit them, since
+              a product can appear on any number of these. */}
+          <div style={{ display: 'grid', gap: '0.5rem' }}>
+            <span style={{ fontSize: '0.8125rem' }}>Frequently asked questions</span>
+            <span style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)' }}>
+              Shown on this page by the <strong>Filter Page: FAQs</strong> piece - Editing pages → Filters → Filter
+              collection page. Nothing written here, nothing shown.
+            </span>
+            <FaqListEditor
+              items={faqs.items}
+              onChange={(items: ShpFaqItem[]) => setFaqs((f) => ({ ...f, items }))}
+              emptyNote="No questions written for this page yet. It still shows the shop-wide ones."
+            />
+            <label style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', fontSize: '0.8125rem' }}>
+              <input type="checkbox" checked={faqs.inherit} onChange={(e) => setFaqs((f) => ({ ...f, inherit: e.target.checked }))} />
+              Also show the shop&apos;s own questions
             </label>
           </div>
 
