@@ -15,6 +15,7 @@ import { renderTaggedCards } from '@/modules/filters-for-shop/lib/tagged-cards'
 import { FilterShell } from '@/modules/filters-for-shop/components/public/FilterShell'
 import { shopFilterCss } from '@/modules/filters-for-shop/components/public/filter-css'
 import type { FltSortKey } from '@/modules/filters-for-shop/lib/sort'
+import { SharedStyle } from '@/components/SharedStyle'
 
 // The filter panel over a set of search results.
 //
@@ -97,7 +98,8 @@ export async function renderSearchFilterGrid(
 
   return (
     <>
-      <style dangerouslySetInnerHTML={{ __html: shopCardCss(bp) + shopFilterCss(bp) }} />
+      <SharedStyle id="shop-cards" css={shopCardCss(bp)} />
+      <SharedStyle id="shop-filters" css={shopFilterCss(bp)} />
       <FilterShell
         groups={offered}
         matrix={Object.fromEntries(matrix)}

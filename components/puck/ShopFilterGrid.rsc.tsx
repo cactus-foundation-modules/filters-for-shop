@@ -22,6 +22,7 @@ import { comboFilterIds, matchesSelection } from '@/modules/filters-for-shop/lib
 import { preselectByGroup } from '@/modules/filters-for-shop/lib/preselect'
 import { packSwaps } from '@/modules/filters-for-shop/lib/swap-pack'
 import { shopFilterGridPuckComponent, type ShopFilterGridProps } from './ShopFilterGrid'
+import { SharedStyle } from '@/components/SharedStyle'
 
 // Server (RSC) half of Shop: Filters & Product Grid.
 //
@@ -296,7 +297,8 @@ export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
 
   return (
     <>
-      <style dangerouslySetInnerHTML={{ __html: shopCardCss(bp) + shopFilterCss(bp) }} />
+      <SharedStyle id="shop-cards" css={shopCardCss(bp)} />
+      <SharedStyle id="shop-filters" css={shopFilterCss(bp)} />
       <FilterShell
         groups={offered}
         matrix={Object.fromEntries(matrix)}
