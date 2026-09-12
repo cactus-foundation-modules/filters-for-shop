@@ -1,3 +1,5 @@
+import { Suspense } from 'react'
+import { CardGridSkeleton } from '@/components/CardGridSkeleton'
 import { connection } from 'next/server'
 import { listProducts, getProductMediaForProducts, getProductTagIdsForProducts, HARD_MAX_PER_PAGE } from '@/modules/shop/lib/db'
 import { listTags, resolveCategoryProductFilter, listCategories, getProductCategoryIdsForProducts } from '@/modules/shop/lib/db'
@@ -45,7 +47,26 @@ import { SharedStyle } from '@/components/SharedStyle'
 // RENDERING of a card - stamping a Puck document per product and serialising it
 // for the browser - that is skipped, and that is where the megabytes were.
 //
-export async function ShopFilterGridRsc(props: ShopFilterGridProps) {
+// The Suspense boundary has to be OUTSIDE the async work, which is why this is a
+// plain function wrapping an async one: a Suspense declared inside the async
+// component would already have awaited everything before React saw it. Same
+// shape, and the same hard-won reason, as ProductDiscoveryRsc.
+//
+// WHAT IT BUYS, measured cold on the live site: a filter collection page took
+// 4.3 seconds to its FIRST BYTE, because this block's product query had to
+// finish before the header could be sent. The work is unchanged; the page simply
+// starts arriving straight away and the grid fills in underneath it. There is no
+// notFound() or redirect() in the body, so committing the response early costs
+// no status code - the route settles that before any block renders.
+export function ShopFilterGridRsc(props: ShopFilterGridProps) {
+  return (
+    <Suspense fallback={<CardGridSkeleton columns={props.columns ?? 3} count={Math.floor(Number(props.pageSize)) || props.limit || 12} />}>
+      <ShopFilterGridRscBody {...props} />
+    </Suspense>
+  )
+}
+
+async function ShopFilterGridRscBody(props: ShopFilterGridProps) {
   await connection()
   const columns = props.columns ?? 3
   // Paging off is this block exactly as it was: fetch `limit`, render `limit`,
