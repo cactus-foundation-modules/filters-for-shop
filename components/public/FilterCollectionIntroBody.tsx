@@ -1,6 +1,6 @@
-import { Render } from '@puckeditor/core/rsc'
 import type { Data } from '@puckeditor/core'
 import { FILTER_COLLECTION_INTRO_LAYOUT_TYPE, hasIntroContent, type FltPuckData } from '@/modules/filters-for-shop/lib/types'
+import { CactusRender } from '@/lib/puck/CactusRender'
 
 // A filter collection's designed intro. Shared by the Intro block and the
 // built-in page shell, so both make the same call about whether there is one.
@@ -18,7 +18,7 @@ export async function FilterCollectionIntroBody({ intro, className, style }: {
       {/* `as any`: Puck's RSC Render is typed against a concrete config and the
           module config is assembled at runtime - the same cast every surface
           that stamps a document makes. */}
-      <Render config={getModuleLayoutPuckRscConfig(FILTER_COLLECTION_INTRO_LAYOUT_TYPE) as any} data={intro as Data} />
+      <CactusRender config={getModuleLayoutPuckRscConfig(FILTER_COLLECTION_INTRO_LAYOUT_TYPE) as any} data={intro as Data} />
     </div>
   )
 }

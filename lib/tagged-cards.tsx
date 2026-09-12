@@ -1,4 +1,3 @@
-import { Render } from '@puckeditor/core/rsc'
 import type { Data } from '@puckeditor/core'
 import { withCardAdminEditHrefs } from '@/modules/shop/lib/card-template'
 import { injectShopProductCardEmbed } from '@/modules/shop/lib/inject-part-context'
@@ -6,6 +5,7 @@ import { formatMoney } from '@/modules/shop/lib/money'
 import { productHref, type ProductUrlStyle } from '@/modules/shop/lib/product-url'
 import type { PuckData } from '@/modules/shop/lib/types'
 import type { CardItem } from '@/modules/shop/lib/card-template'
+import { CactusRender } from '@/lib/puck/CactusRender'
 
 // The card anchor here deliberately mirrors shop's own renderCards rather than
 // calling it: the only difference is the data-flt-product tag the shell hangs
@@ -46,7 +46,7 @@ export async function renderTaggedCards(template: PuckData | null, items: CardIt
           cannot hand back an address a ROOT-style shop no longer serves. */}
       <a className="shop-card-link" href={ctx.productHref ?? productHref(product.slug, urlStyle)} aria-label={product.name} />
       {template ? (
-        <Render config={config as any} data={injectShopProductCardEmbed(template, at < eagerCount ? { ...ctx, eager: true } : ctx, partTypes) as Data} />
+        <CactusRender config={config as any} data={injectShopProductCardEmbed(template, at < eagerCount ? { ...ctx, eager: true } : ctx, partTypes) as Data} />
       ) : (
         <>
           <div className="shop-card-img">

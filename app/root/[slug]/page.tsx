@@ -1,6 +1,5 @@
 import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
-import { Render } from '@puckeditor/core/rsc'
 import { getSiteUrlOrNull } from '@/lib/config/env'
 import { getSessionFromCookie } from '@/lib/auth/session'
 import { resolveThemeLayout } from '@/lib/layout/resolveThemeLayout'
@@ -15,6 +14,7 @@ import { FILTER_COLLECTION_LAYOUT_TYPE, type FltCollection, type FltPuckData } f
 import { FilterCollectionIntroBody } from '@/modules/filters-for-shop/components/public/FilterCollectionIntroBody'
 import { ShopFilterGridRsc } from '@/modules/filters-for-shop/components/puck/ShopFilterGrid.rsc'
 import Link from 'next/link'
+import { CactusRender } from '@/lib/puck/CactusRender'
 
 // A filter collection page, at the bare top-level address it owns.
 //
@@ -118,7 +118,7 @@ export default async function FilterCollectionPage({ params, searchParams }: Pro
     return (
       <>
         {banners}
-        <Render config={getModuleLayoutPuckRscConfig(FILTER_COLLECTION_LAYOUT_TYPE) as any} data={data as any} />
+        <CactusRender config={getModuleLayoutPuckRscConfig(FILTER_COLLECTION_LAYOUT_TYPE) as any} data={data as any} />
       </>
     )
   }
