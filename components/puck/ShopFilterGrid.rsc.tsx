@@ -23,6 +23,7 @@ import { loadFilterGridCards } from '@/modules/filters-for-shop/lib/grid-cards-a
 import { comboFilterIds, matchesSelection } from '@/modules/filters-for-shop/lib/filter-logic'
 import { preselectByGroup } from '@/modules/filters-for-shop/lib/preselect'
 import { packSwaps } from '@/modules/filters-for-shop/lib/swap-pack'
+import { packFilterGrid } from '@/modules/filters-for-shop/lib/grid-pack'
 import { shopFilterGridPuckComponent, type ShopFilterGridProps } from './ShopFilterGrid'
 import { SharedStyle } from '@/components/SharedStyle'
 
@@ -321,25 +322,29 @@ async function ShopFilterGridRscBody(props: ShopFilterGridProps) {
       <SharedStyle id="shop-cards" css={shopCardCss(bp)} />
       <SharedStyle id="shop-filters" css={shopFilterCss(bp)} />
       <FilterShell
-        groups={offered}
-        matrix={Object.fromEntries(matrix)}
-        variations={variationIndex}
-        swaps={swapIndex}
-        sortKeys={sortKeys}
+        // Folded for the wire once more, as a whole - see lib/grid-pack.ts for
+        // the 283 KB this was on the office-chairs category.
+        packedGrid={packFilterGrid({
+          groups: offered,
+          matrix: Object.fromEntries(matrix),
+          variations: variationIndex,
+          swaps: swapIndex,
+          sortKeys,
+          serverOrder,
+          renderedIds: onDemand ? renderIds : undefined,
+          preselect,
+        })}
         showSort={props.showSort !== 'no'}
         defaultSort={defaultSort}
-        serverOrder={serverOrder}
         columns={columns}
         position={props.filterPosition === 'top' ? 'top' : 'left'}
         showCounts={props.showCounts !== 'no'}
-        preselect={preselect}
         swapImages={settings.swapCardImages}
         preselectOnClick={settings.preselectOnClick}
         tabletBp={bp.tabletBp}
         paginate={paginate}
         pageSize={pageSize}
         moreLabel={props.moreLabel}
-        renderedIds={onDemand ? renderIds : undefined}
         page={page}
         // Bound here, so what the browser may ask for is a list of ids off a
         // list the server drew up - which products this grid is over, which card

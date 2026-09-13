@@ -7,6 +7,7 @@ import { isImageSwatch, type FltControlType } from '@/modules/filters-for-shop/l
 import { pageHref } from '@/modules/shop/lib/page-href'
 import { FLT_SORT_OPTIONS, FLT_SORT_RECOMMENDED_PARAM, isFltSortValue, sortProductIds, sortValueFromParam, type FltSortKey, type FltSortValue } from '@/modules/filters-for-shop/lib/sort'
 import { EMPTY_SWAP_INDEX, unpackSwaps, type FltSwapIndex } from '@/modules/filters-for-shop/lib/swap-pack'
+import { unpackFilterGrid, type FltPackedGrid } from '@/modules/filters-for-shop/lib/grid-pack'
 import { withOptionParams } from '@/modules/filters-for-shop/lib/option-param'
 import type { FltSwap } from '@/modules/filters-for-shop/lib/db/matching'
 
@@ -30,7 +31,10 @@ export type FltVariationIndex = {
   byProduct: Record<string, number[]>
 }
 
-export type FilterShellProps = {
+// Everything the shell is handed that names a product or a filter - the part of
+// what it is given that grows with the shelf. It travels folded (see
+// lib/grid-pack.ts) and is unfolded into exactly this once, as the shell mounts.
+export type FltGridData = {
   groups: FltPublicGroup[]
   // product id -> filter ids it matches (via its enabled variations).
   matrix: Record<string, string[]>
@@ -49,6 +53,28 @@ export type FilterShellProps = {
   // product id -> the figures the sort dropdown orders on. Resolved server-side
   // from the same numbers the cards print. Absent entries simply never sort.
   sortKeys: Record<string, FltSortKey>
+  // The shop's own order of the product ids, i.e. what "Recommended" means -
+  // handed over rather than read off the cards, because the cards may well
+  // arrive already sorted into `defaultSort` and reading THAT back would make
+  // the two options the same order.
+  serverOrder?: string[]
+  // Which products `children` already holds cards for. Only meaningful beside
+  // loadCards, and named rather than counted because the first page is the
+  // PRESELECT-matching window, which is not the first N of `serverOrder`.
+  renderedIds?: string[]
+  // Filter ids that arrive already ticked, on a filter collection page built
+  // around them ("Green Office Chairs" is Colour=Green ticked on arrival). Empty
+  // on every ordinary category, collection and tag page, where this whole
+  // mechanism is inert.
+  //
+  // A starting point, not a lock: the controls are the same controls and the
+  // shopper can clear any of it.
+  preselect?: string[]
+}
+
+export type FilterShellProps = {
+  // The grid's data, packed by lib/grid-pack.ts on the server.
+  packedGrid: FltPackedGrid
   // Whether the sort dropdown is offered at all (a Puck field on the block).
   showSort: boolean
   // The order the grid starts in, before the shopper touches the dropdown (a
@@ -56,11 +82,6 @@ export type FilterShellProps = {
   // so this is only what the dropdown is set to and what the query string
   // counts as untouched - never a re-order the shopper watches happen.
   defaultSort?: FltSortValue
-  // The shop's own order of the product ids, i.e. what "Recommended" means -
-  // handed over rather than read off the cards, because the cards may well
-  // arrive already sorted into `defaultSort` and reading THAT back would make
-  // the two options the same order.
-  serverOrder?: string[]
   columns: number
   position: 'left' | 'top'
   showCounts: boolean
@@ -97,23 +118,11 @@ export type FilterShellProps = {
   // shown and hidden in place. Both paths run the same passes below; the only
   // difference is whether a card the window wants is already in the DOM.
   loadCards?: (ids: string[]) => Promise<React.ReactNode[]>
-  // Which products `children` already holds cards for. Only meaningful beside
-  // loadCards, and named rather than counted because the first page is the
-  // PRESELECT-matching window, which is not the first N of `serverOrder`.
-  renderedIds?: string[]
   // Which page the SERVER rendered, from `?page=` on the address. 1 unless a
   // crawler or a shared link asked for another. The window opens there and grows
   // downward from it, so following a link to page three lands on products 25-36
   // rather than quietly starting over at the top.
   page?: number
-  // Filter ids that arrive already ticked, on a filter collection page built
-  // around them ("Green Office Chairs" is Colour=Green ticked on arrival). Empty
-  // on every ordinary category, collection and tag page, where this whole
-  // mechanism is inert.
-  //
-  // A starting point, not a lock: the controls are the same controls and the
-  // shopper can clear any of it.
-  preselect?: string[]
 }
 
 // A tick list longer than this collapses behind "Show all" - long enough that
@@ -230,7 +239,13 @@ function dressCard(el: HTMLElement, swapList: FltSwap[], swapImages: boolean, pr
 // suppressed at the call site.
 const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect
 
-export function FilterShell({ groups, matrix, variations = EMPTY_VARIATIONS, swaps: swapIndex = EMPTY_SWAP_INDEX, sortKeys, showSort, defaultSort = '', serverOrder, columns, position, showCounts, swapImages, preselectOnClick, tabletBp, children, paginate = 'none', pageSize = 24, moreLabel, preselect, loadCards, renderedIds, page: serverPage }: FilterShellProps) {
+export function FilterShell({ packedGrid, showSort, defaultSort = '', columns, position, showCounts, swapImages, preselectOnClick, tabletBp, children, paginate = 'none', pageSize = 24, moreLabel, loadCards, page: serverPage }: FilterShellProps) {
+  // Unfolded once, into exactly the shapes everything below has always worked
+  // on, so the filter maths, the sort and the card fetch cannot tell the wire
+  // shape changed. Keyed on the packed object itself, which is only ever a new
+  // object when the server sends a new render - a tick or a page turn never
+  // unfolds it again.
+  const { groups, matrix, variations = EMPTY_VARIATIONS, swaps: swapIndex = EMPTY_SWAP_INDEX, sortKeys, serverOrder, renderedIds, preselect } = useMemo(() => unpackFilterGrid(packedGrid), [packedGrid])
   const gridRef = useRef<HTMLDivElement>(null)
   const resultsRef = useRef<HTMLDivElement>(null)
   const drawerRef = useRef<HTMLDivElement>(null)

@@ -11,6 +11,7 @@ import { getSettings } from '@/modules/filters-for-shop/lib/db/settings'
 import { getProductFilterMatches } from '@/modules/filters-for-shop/lib/db/matching'
 import { applyPriceBands, internVariations, offerGroups } from '@/modules/filters-for-shop/lib/grid-build'
 import { packSwaps } from '@/modules/filters-for-shop/lib/swap-pack'
+import { packFilterGrid } from '@/modules/filters-for-shop/lib/grid-pack'
 import { renderTaggedCards } from '@/modules/filters-for-shop/lib/tagged-cards'
 import { FilterShell } from '@/modules/filters-for-shop/components/public/FilterShell'
 import { shopFilterCss } from '@/modules/filters-for-shop/components/public/filter-css'
@@ -101,13 +102,15 @@ export async function renderSearchFilterGrid(
       <SharedStyle id="shop-cards" css={shopCardCss(bp)} />
       <SharedStyle id="shop-filters" css={shopFilterCss(bp)} />
       <FilterShell
-        groups={offered}
-        matrix={Object.fromEntries(matrix)}
-        variations={internVariations(combos)}
-        swaps={packSwaps(swaps)}
-        sortKeys={sortKeys}
+        packedGrid={packFilterGrid({
+          groups: offered,
+          matrix: Object.fromEntries(matrix),
+          variations: internVariations(combos),
+          swaps: packSwaps(swaps),
+          sortKeys,
+          serverOrder: ids,
+        })}
         showSort={false}
-        serverOrder={ids}
         columns={columns}
         position="left"
         showCounts
