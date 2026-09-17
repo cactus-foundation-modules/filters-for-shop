@@ -5,6 +5,7 @@ import { facetCount, matchesSelection, pickCombinationFilters, pickSwapFilters, 
 import { applySelectionToParams, preselectByGroup, selectionFromParams } from '@/modules/filters-for-shop/lib/preselect'
 import { isImageSwatch, type FltControlType } from '@/modules/filters-for-shop/lib/types'
 import { pageHref } from '@/modules/shop/lib/page-href'
+import { holdScrollPosition } from '@/modules/filters-for-shop/lib/hold-scroll-position'
 import { FLT_SORT_OPTIONS, FLT_SORT_RECOMMENDED_PARAM, isFltSortValue, sortProductIds, sortValueFromParam, type FltSortKey, type FltSortValue } from '@/modules/filters-for-shop/lib/sort'
 import { EMPTY_SWAP_INDEX, unpackSwaps, type FltSwapIndex } from '@/modules/filters-for-shop/lib/swap-pack'
 import { unpackFilterGrid, type FltPackedGrid } from '@/modules/filters-for-shop/lib/grid-pack'
@@ -484,7 +485,10 @@ export function FilterShell({ packedGrid, showSort, defaultSort = '', columns, p
         // Marked loaded on arrival, not on request: a failed batch has to be
         // askable again, and an id marked early would never be asked for.
         for (const id of missing) loadedIdsRef.current.add(id)
-        setExtraCards((prev) => [...prev, ...nodes])
+        // Held: the shopper is usually at the bottom of the grid when a batch
+        // lands, and the passes below re-append every card, so the browser would
+        // otherwise carry them down to the footer - see holdScrollPosition.
+        holdScrollPosition(() => setExtraCards((prev) => [...prev, ...nodes]))
       })
       .catch(() => setCardsFailed(true))
       .finally(() => {
@@ -703,8 +707,11 @@ export function FilterShell({ packedGrid, showSort, defaultSort = '', columns, p
   // unbounded counter was never actually reachable - but leaving it unbounded
   // means the one number the observer drives has no ceiling at all, and the two
   // implementations of the same idea disagreed. They agree now.
+  // Held for the same reason a fetched batch is: cards already in hand appear in
+  // this very commit, above the footer or the focused button the browser would
+  // otherwise keep on screen.
   const showMore = useCallback(
-    () => setShownLimit((n) => Math.min(n + pageSize, matchingTotal)),
+    () => holdScrollPosition(() => setShownLimit((n) => Math.min(n + pageSize, matchingTotal))),
     [pageSize, matchingTotal],
   )
   // The address the control points at, and the one back. The server renders

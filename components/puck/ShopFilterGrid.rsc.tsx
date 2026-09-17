@@ -4,6 +4,7 @@ import { connection } from 'next/server'
 import { listProducts, getProductMediaForProducts, getProductTagIdsForProducts, HARD_MAX_PER_PAGE } from '@/modules/shop/lib/db'
 import { listTags, resolveCategoryProductFilter, listCategories, getProductCategoryIdsForProducts } from '@/modules/shop/lib/db'
 import { getShopConfigCached } from '@/modules/shop/lib/config'
+import { resolveTaxDisplay } from '@/modules/shop/lib/tax-display'
 import { getShopBreakpoints } from '@/modules/shop/lib/breakpoints'
 import { resolveCardTemplate, buildCardContext, buildTagMaps } from '@/modules/shop/lib/card-template'
 import { resolveCardFromPrices } from '@/modules/shop/lib/card-price'
@@ -89,7 +90,13 @@ async function ShopFilterGridRscBody(props: ShopFilterGridProps) {
   // category, collection and filter-collection layout, every one of them
   // `paginate: 'scroll'` with `pageLoad` unset. One page was 7.2 MB.
   const onDemand = paginate !== 'none' && props.pageLoad !== 'upfront'
-  const config = await getShopConfigCached()
+  // Tax display resolved with the config and handed to every card context, as
+  // shop's own grids do (lib/grid-page.ts). Without it the cards printed stored
+  // figures whatever the shop's Prices setting said, and carried no VAT switch
+  // at all - so a shopper who switched on a product page came back to a category
+  // still quoting the other side.
+  const [config, taxDisplay] = await Promise.all([getShopConfigCached(), resolveTaxDisplay()])
+  const pricing = { ...config, taxDisplay }
   const categoryFilter = props.categorySlug
     ? await resolveCategoryProductFilter(props.categorySlug, config.categoryProductDisplayMode)
     : {}
@@ -160,7 +167,7 @@ async function ShopFilterGridRscBody(props: ShopFilterGridProps) {
   // photographs through this block on every uncached render, to draw 24 cards.
   const priceOf = new Map<string, number>()
   for (const product of products) {
-    const ctx = buildCardContext(product, [], tagById, [], config.currencySymbol, config, fromPrices.get(product.id) ?? null, undefined, tagsById)
+    const ctx = buildCardContext(product, [], tagById, [], config.currencySymbol, pricing, fromPrices.get(product.id) ?? null, undefined, tagsById)
     priceOf.set(product.id, Number(ctx.fromPrice ?? ctx.prices.now))
   }
 
@@ -306,7 +313,7 @@ async function ShopFilterGridRscBody(props: ShopFilterGridProps) {
     .filter((product): product is (typeof products)[number] => product != null)
     .map((product) => ({
       product,
-      ctx: buildCardContext(product, mediaByProduct.get(product.id) ?? [], tagById, tagIdsByProduct.get(product.id) ?? [], config.currencySymbol, config, fromPrices.get(product.id) ?? null, cardExtras.get(product.id), tagsById),
+      ctx: buildCardContext(product, mediaByProduct.get(product.id) ?? [], tagById, tagIdsByProduct.get(product.id) ?? [], config.currencySymbol, pricing, fromPrices.get(product.id) ?? null, cardExtras.get(product.id), tagsById),
     }))
   const sortedCards = await renderTaggedCards(
     template,
