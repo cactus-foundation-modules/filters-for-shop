@@ -1,11 +1,11 @@
 'use client'
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { facetCount, matchesSelection, pickCombinationFilters, pickSwapFilters, type FltMatrixEntry, type FltSelection } from '@/modules/filters-for-shop/lib/filter-logic'
 import { applySelectionToParams, preselectByGroup, selectionFromParams } from '@/modules/filters-for-shop/lib/preselect'
 import { isImageSwatch, type FltControlType } from '@/modules/filters-for-shop/lib/types'
 import { pageHref } from '@/modules/shop/lib/page-href'
-import { holdScrollPosition } from '@/modules/filters-for-shop/lib/hold-scroll-position'
+import { holdScrollPosition, releaseScrollHold, ScrollHoldSnapshot, type HeldScroll } from '@/modules/filters-for-shop/lib/hold-scroll-position'
 import { FLT_SORT_OPTIONS, FLT_SORT_RECOMMENDED_PARAM, isFltSortValue, sortProductIds, sortValueFromParam, type FltSortKey, type FltSortValue } from '@/modules/filters-for-shop/lib/sort'
 import { EMPTY_SWAP_INDEX, unpackSwaps, type FltSwapIndex } from '@/modules/filters-for-shop/lib/swap-pack'
 import { unpackFilterGrid, type FltPackedGrid } from '@/modules/filters-for-shop/lib/grid-pack'
@@ -485,10 +485,14 @@ export function FilterShell({ packedGrid, showSort, defaultSort = '', columns, p
         // Marked loaded on arrival, not on request: a failed batch has to be
         // askable again, and an id marked early would never be asked for.
         for (const id of missing) loadedIdsRef.current.add(id)
-        // Held: the shopper is usually at the bottom of the grid when a batch
-        // lands, and the passes below re-append every card, so the browser would
-        // otherwise carry them down to the footer - see holdScrollPosition.
-        holdScrollPosition(() => setExtraCards((prev) => [...prev, ...nodes]))
+        // A transition, never a sync update: a card fresh from the server can
+        // suspend, and a sync update that suspends swaps the whole grid for an
+        // empty fallback - the page collapses under the shopper and the browser
+        // drops them at the footer. A transition keeps what is on screen until
+        // the batch can render. The scroll is held where that commit actually
+        // happens - ScrollHoldSnapshot in the grid, released by the last layout
+        // effect - see lib/hold-scroll-position.
+        startTransition(() => setExtraCards((prev) => [...prev, ...nodes]))
       })
       .catch(() => setCardsFailed(true))
       .finally(() => {
@@ -625,6 +629,15 @@ export function FilterShell({ packedGrid, showSort, defaultSort = '', columns, p
     // put on or off a page.
   }, [paginate, windowIds, extraCards])
 
+  // Lets go of the hold ScrollHoldSnapshot took as a batch was committed.
+  // Declared LAST of the layout effects on purpose: by now the filter, sort and
+  // paging passes have finished moving and hiding cards, so the position is put
+  // back against the grid the shopper will actually be shown.
+  const heldScrollRef = useRef<HeldScroll | null>(null)
+  useIsomorphicLayoutEffect(() => {
+    releaseScrollHold(heldScrollRef)
+  }, [extraCards])
+
   function toggle(groupId: string, filterId: string) {
     setSelected((prev) => {
       const next = new Map(prev)
@@ -752,6 +765,9 @@ export function FilterShell({ packedGrid, showSort, defaultSort = '', columns, p
   }, [paginate, moreToShow, showMore])
   const grid = (
     <>
+      {/* Renders nothing: notes the scroll position in the instant before a
+          fetched batch reaches the DOM. Released by the last layout effect. */}
+      <ScrollHoldSnapshot token={extraCards} into={heldScrollRef} />
       <div className="shop-grid" style={{ ['--shop-cols' as string]: String(columns) } as React.CSSProperties} ref={gridRef}>
         {children}
         {/* Fetched pages, rendered by React rather than written into the DOM by
