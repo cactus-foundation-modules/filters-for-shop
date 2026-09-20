@@ -4,6 +4,7 @@ import { FaqAccordion } from '@/modules/shop/components/public/FaqAccordion'
 import { getShopBreakpoints } from '@/modules/shop/lib/breakpoints'
 import { getShopConfigCached } from '@/modules/shop/lib/config'
 import { normaliseFaqItems, resolveCategoryFaqs, type ShpFaqItem } from '@/modules/shop/lib/faq'
+import { renderFaqItems } from '@/modules/shop/lib/faq-render'
 import { filterCollectionFaqsPuckComponent, type FilterCollectionFaqsProps } from './FilterCollectionFaqs'
 
 // Server (RSC) half of Filter Page: FAQs. Kept out of the client editor bundle -
@@ -14,6 +15,12 @@ import { filterCollectionFaqsPuckComponent, type FilterCollectionFaqsProps } fro
 // structured data, the merge rules and the shop-wide switch. That import is what
 // stops a site publishing two different FAQ shapes off one domain, and it is why
 // the manifest's requiresModules pins a shop version that actually has them.
+//
+// An answer may carry its own markup now, so it is rendered through shop's
+// renderFaqItems (which sanitises it) rather than handed over raw, and the
+// answer body is dressed by .faq-a rather than by a bare paragraph rule. That
+// is a shop version this module's requiresModules has to insist on - the class
+// name and the type both come from over there.
 //
 // Nothing renders when there is nothing to render: no questions written, or FAQs
 // switched off shop-wide. A block left in the shared layout therefore costs a
@@ -31,7 +38,15 @@ const faqsCss = ({ tabletBp }: { tabletBp: string }) => `
 @media (max-width:${tabletBp}){.shop-faqs-2{grid-template-columns:1fr}}
 .shop-faq{border-bottom:1px solid var(--color-border);padding:12px 0}
 .shop-faq > summary{cursor:pointer;font-weight:600;color:var(--color-fg)}
-.shop-faq p{margin:8px 0 0;color:var(--color-text);white-space:pre-wrap}
+.shop-faq .faq-a{margin-top:8px;color:var(--color-text)}
+.shop-faq .faq-a > *{margin:0 0 8px}
+.shop-faq .faq-a > :last-child{margin-bottom:0}
+.shop-faq .faq-a ul,.shop-faq .faq-a ol{padding-left:20px}
+.shop-faq .faq-a li{margin:2px 0}
+.shop-faq .faq-a a{color:var(--color-primary);text-decoration:underline}
+.shop-faq .faq-a img{max-width:100%;height:auto}
+.shop-faq .faq-a table{border-collapse:collapse;width:100%}
+.shop-faq .faq-a th,.shop-faq .faq-a td{border:1px solid var(--color-border);padding:6px 8px;text-align:left}
 `
 
 export async function FilterCollectionFaqsRsc(props: FilterCollectionFaqsProps) {
@@ -63,7 +78,7 @@ export async function FilterCollectionFaqsRsc(props: FilterCollectionFaqsProps) 
     <section className="shop-faqs-block">
       <style dangerouslySetInnerHTML={{ __html: faqsCss(bp) }} />
       {title ? <h2 className="shop-faqs-title">{title}</h2> : null}
-      <FaqAccordion items={items} wrapperClassName={wrapper} itemClassName="shop-faq" />
+      <FaqAccordion items={renderFaqItems(items)} wrapperClassName={wrapper} itemClassName="shop-faq" />
     </section>
   )
 }
