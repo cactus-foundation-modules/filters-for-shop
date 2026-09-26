@@ -35,7 +35,8 @@ export type ShopFilterGridProps = {
   // Paging. 'none' is what this block did before, and stays the default: every
   // matching product on screen at once. Switched on, "Number of products" stops
   // being the ceiling on the whole list and becomes the page size, with the
-  // grid fetching up to shop's HARD_MAX_PER_PAGE behind it.
+  // grid fetching the whole shelf behind it - up to FLT_SHELF_CEILING fetched
+  // on demand, or shop's HARD_MAX_PER_PAGE when every card is sent up front.
   paginate?: string
   pageSize?: number
   // Where the pages after the first come from. Blank or 'upfront' is what paging

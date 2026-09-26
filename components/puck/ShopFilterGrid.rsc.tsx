@@ -1,8 +1,8 @@
 import { Suspense } from 'react'
 import { CardGridSkeleton } from '@/components/CardGridSkeleton'
 import { connection } from 'next/server'
-import { listProducts, getProductMediaForProducts, getProductTagIdsForProducts, HARD_MAX_PER_PAGE } from '@/modules/shop/lib/db'
-import { listTags, resolveCategoryProductFilter, listCategories, getProductCategoryIdsForProducts } from '@/modules/shop/lib/db'
+import { getProductMediaForProducts, getProductTagIdsForProducts, HARD_MAX_PER_PAGE } from '@/modules/shop/lib/db'
+import { listTags, listCategories, getProductCategoryIdsForProducts } from '@/modules/shop/lib/db'
 import { getShopConfigCached } from '@/modules/shop/lib/config'
 import { resolveTaxDisplay } from '@/modules/shop/lib/tax-display'
 import { getShopBreakpoints } from '@/modules/shop/lib/breakpoints'
@@ -14,6 +14,8 @@ import type { CardItem } from '@/modules/shop/lib/card-template'
 import { listGroups } from '@/modules/filters-for-shop/lib/db/filters'
 import { getSettings } from '@/modules/filters-for-shop/lib/db/settings'
 import { getProductFilterMatches } from '@/modules/filters-for-shop/lib/db/matching'
+import { listFilterShelf, type FltShelfScope } from '@/modules/filters-for-shop/lib/shelf'
+import { FLT_SHELF_CEILING } from '@/modules/filters-for-shop/lib/shelf-plan'
 import { CATEGORY_GROUP_ID, CATEGORY_GROUP_SLUG, CATEGORY_GROUP_NAME, buildBranchIndex, productBranchFilterIds, categoryFilterId } from '@/modules/filters-for-shop/lib/category-filter'
 import { applyPriceBands, internVariations, offerGroups } from '@/modules/filters-for-shop/lib/grid-build'
 import { sortProductIds, sortValueFromParam, type FltSortKey } from '@/modules/filters-for-shop/lib/sort'
@@ -34,6 +36,8 @@ import { SharedStyle } from '@/components/SharedStyle'
 // layout, then the client shell shows, hides and re-dresses them as filters are
 // ticked. Cards stay pixel-identical to every other shop grid and filtering is
 // instant, at the cost of rendering the whole (capped) result set once.
+// On-demand grids are capped at FLT_SHELF_CEILING rather than shop's 500 - see
+// lib/shelf.ts.
 //
 // That cost is real and was measured rather than guessed: a 432-product filter
 // collection shipped 14.6 MB, three quarters of it the flight payload for cards
@@ -77,7 +81,6 @@ async function ShopFilterGridRscBody(props: ShopFilterGridProps) {
   const paginate = props.paginate === 'more' || props.paginate === 'pages' || props.paginate === 'scroll' ? props.paginate : 'none'
   const limit = props.limit ?? 24
   const pageSize = paginate === 'none' ? limit : Math.max(1, Math.floor(Number(props.pageSize)) || limit)
-  const fetchCount = paginate === 'none' ? limit : HARD_MAX_PER_PAGE
   // Where the pages after the first come from. Meaningless without paging.
   //
   // ABSENT means the owner never chose, and since 0.1.39 that means on-demand.
@@ -90,6 +93,21 @@ async function ShopFilterGridRscBody(props: ShopFilterGridProps) {
   // category, collection and filter-collection layout, every one of them
   // `paginate: 'scroll'` with `pageLoad` unset. One page was 7.2 MB.
   const onDemand = paginate !== 'none' && props.pageLoad !== 'upfront'
+  // How many products the grid is over. Unpaged, `limit`. Paged with every card
+  // sent up front, shop's own 500 - that mode renders the lot, and 500 cards is
+  // already a heavy page. Paged on demand, the whole shelf up to FLT_SHELF_CEILING:
+  // only a page of cards is drawn however many there are, and a shelf cut short
+  // is products no tick, count or page can ever reach (see lib/shelf.ts).
+  const fetchCount = paginate === 'none'
+    ? Math.min(limit, HARD_MAX_PER_PAGE)
+    : onDemand ? FLT_SHELF_CEILING : HARD_MAX_PER_PAGE
+  const scope: FltShelfScope = {
+    categorySlug: props.categorySlug || undefined,
+    collectionSlug: props.collectionSlug || undefined,
+    tagSlug: props.tagSlug || undefined,
+    supplierSlug: props.supplierSlug || undefined,
+    fetchCount,
+  }
   // Tax display resolved with the config and handed to every card context, as
   // shop's own grids do (lib/grid-page.ts). Without it the cards printed stored
   // figures whatever the shop's Prices setting said, and carried no VAT switch
@@ -97,39 +115,27 @@ async function ShopFilterGridRscBody(props: ShopFilterGridProps) {
   // still quoting the other side.
   const [config, taxDisplay] = await Promise.all([getShopConfigCached(), resolveTaxDisplay()])
   const pricing = { ...config, taxDisplay }
-  const categoryFilter = props.categorySlug
-    ? await resolveCategoryProductFilter(props.categorySlug, config.categoryProductDisplayMode)
-    : {}
 
+  // Filtering happens over exactly what comes back here, so it is the honest
+  // ceiling of this block - see `fetchCount` above.
   const [bp, tags, listed, template, groups, settings] = await Promise.all([
     getShopBreakpoints(),
     listTags(),
-    listProducts({
-      status: 'ACTIVE',
-      ...categoryFilter,
-      collectionSlug: props.collectionSlug || undefined,
-      tagSlug: props.tagSlug || undefined,
-      supplierSlug: props.supplierSlug || undefined,
-      // Filtering happens over exactly what is rendered, so whatever comes back
-      // here is the honest ceiling of this block. Unpaged that is `limit` and
-      // the default 100 clamp; paged, it is the whole category up to
-      // HARD_MAX_PER_PAGE, with the shell showing a page of it at a time.
-      perPage: fetchCount,
-      maxPerPage: fetchCount,
-      excludeHidden: true,
-      // Whatever the shop hides for being out of stock is gone before the
-      // filters ever see it, so a filter cannot offer a colour whose only
-      // product the category page next door refuses to list.
-      storefront: true,
-    }),
+    listFilterShelf(scope),
     resolveCardTemplate(props.layoutRef),
     listGroups(),
     getSettings(),
   ])
 
-  const { products } = listed
+  const { products, total } = listed
   if (products.length === 0) {
     return <p style={{ color: 'var(--color-text-muted)' }}>No products to show yet.</p>
+  }
+  // A paged grid is meant to be over its whole scope, so one that came back short
+  // was cut by a ceiling rather than by the owner's own number. Said in the logs,
+  // because the page itself cannot say it without telling shoppers.
+  if (paginate !== 'none' && total > products.length) {
+    console.warn(`[filters-for-shop] filter grid covers ${products.length} of ${total} products - the rest cannot be filtered to or paged to`)
   }
 
   const productIds = products.map((p) => p.id)
@@ -359,13 +365,7 @@ async function ShopFilterGridRscBody(props: ShopFilterGridProps) {
         // encrypted by Next on the way out. Re-validated server-side regardless.
         loadCards={onDemand
           ? loadFilterGridCards.bind(null, {
-              scope: {
-                categorySlug: props.categorySlug || undefined,
-                collectionSlug: props.collectionSlug || undefined,
-                tagSlug: props.tagSlug || undefined,
-                supplierSlug: props.supplierSlug || undefined,
-                fetchCount,
-              },
+              scope,
               layoutRef: props.layoutRef,
               maxCards: pageSize,
             })
