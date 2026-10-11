@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FltCatalogueOption, FltControlType, FltFilter, FltGroup } from '@/modules/filters-for-shop/lib/types'
 import { isImageSwatch } from '@/modules/filters-for-shop/lib/types'
+import { useAdminConfirm } from '@/components/admin/useAdminConfirm'
 
 const BASE = '/api/m/filters-for-shop/admin'
 
@@ -272,6 +273,7 @@ function GroupCard({ group, catalogue, busy, send, canMoveUp, canMoveDown, onMov
   const [renaming, setRenaming] = useState(false)
   const [name, setName] = useState(group.name)
   const [newLabel, setNewLabel] = useState('')
+  const [askConfirm, confirmNode] = useAdminConfirm()
 
   async function rename() {
     const trimmed = name.trim()
@@ -302,12 +304,13 @@ function GroupCard({ group, catalogue, busy, send, canMoveUp, canMoveDown, onMov
   }
 
   async function removeGroup() {
-    if (!window.confirm(`Delete the "${group.name}" group and every filter in it? Shop pages stop offering it straight away.`)) return
+    if (!(await askConfirm({ title: `Delete the "${group.name}" group?`, message: 'Every filter in it goes too, and shop pages stop offering it straight away.' }))) return
     await send(`${BASE}/groups/${group.id}`, 'DELETE')
   }
 
   return (
     <section style={card}>
+      {confirmNode}
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
         {renaming ? (
           <>
@@ -396,6 +399,7 @@ function FilterRow({ group, filter, catalogue, busy, send, canMoveUp, canMoveDow
   pickerOpen: boolean
   setPickerOpen: (open: boolean) => void
 }) {
+  const [askConfirm, confirmNode] = useAdminConfirm()
   const [renaming, setRenaming] = useState(false)
   const [label, setLabel] = useState(filter.label)
   const [swatchDraft, setSwatchDraft] = useState(filter.swatch ?? '')
@@ -414,7 +418,7 @@ function FilterRow({ group, filter, catalogue, busy, send, canMoveUp, canMoveDow
   }
 
   async function remove() {
-    if (!window.confirm(`Delete the "${filter.label}" filter?`)) return
+    if (!(await askConfirm({ title: `Delete the "${filter.label}" filter?`, message: 'Shop pages stop offering it straight away.' }))) return
     await send(`${BASE}/filters/${filter.id}`, 'DELETE')
   }
 
@@ -427,6 +431,7 @@ function FilterRow({ group, filter, catalogue, busy, send, canMoveUp, canMoveDow
 
   return (
     <div style={{ border: '1px solid var(--color-border)', borderRadius: 10, padding: '0.6rem 0.75rem', background: 'var(--color-bg-subtle)' }}>
+      {confirmNode}
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
         {/* The tiny copy where there is one: this dot is 16px, and an admin
             list of ninety filters has no more use for full-size fabric

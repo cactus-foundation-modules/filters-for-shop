@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FltCollection, FltCollectionSource, FltGroup } from '@/modules/filters-for-shop/lib/types'
 import { isImageSwatch } from '@/modules/filters-for-shop/lib/types'
+import { useAdminConfirm } from '@/components/admin/useAdminConfirm'
 import { FaqListEditor } from '@/modules/shop/components/admin/FaqListEditor'
 import type { ShpFaqItem, ShpFaqSet } from '@/modules/shop/lib/faq'
 
@@ -266,6 +267,7 @@ function CollectionCard({ collection, groups, sources, adminPath, busy, send, op
 }) {
   const [name, setName] = useState(collection.name)
   const [slug, setSlug] = useState(collection.slug)
+  const [askConfirm, confirmNode] = useAdminConfirm()
   const [shortDescription, setShortDescription] = useState(collection.shortDescription ?? '')
   const [metaTitle, setMetaTitle] = useState(collection.metaTitle ?? '')
   const [metaDescription, setMetaDescription] = useState(collection.metaDescription ?? '')
@@ -307,7 +309,7 @@ function CollectionCard({ collection, groups, sources, adminPath, busy, send, op
   }
 
   async function remove() {
-    if (!window.confirm(`Delete "${collection.name}"? The page at /${collection.slug} stops answering straight away.`)) return
+    if (!(await askConfirm({ title: `Delete "${collection.name}"?`, message: `The page at /${collection.slug} stops answering straight away.` }))) return
     await send(`${BASE}/collections/${collection.id}`, 'DELETE')
   }
 
@@ -315,6 +317,7 @@ function CollectionCard({ collection, groups, sources, adminPath, busy, send, op
 
   return (
     <section style={card}>
+      {confirmNode}
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
         <h2 style={{ fontSize: '1.0625rem', margin: 0 }}>{collection.name}</h2>
         <span
