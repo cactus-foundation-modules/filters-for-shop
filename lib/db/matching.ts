@@ -80,6 +80,10 @@ const emptyMatches = (): FltProductMatches => ({ matrix: new Map(), combos: new 
 const MATCH_TTL_MS = 60_000
 // Bounded: a site with many shelves and many filter pages must not grow this
 // without limit. Oldest out first, which a Map's insertion order gives for free.
+//
+// Expired entries go as well (see dropExpiredMatches). Waiting for the size limit
+// alone kept fifty shelves' worth of answers in memory for as long as the process
+// ran, every one of them past the point it could ever be served again.
 const MATCH_CACHE_MAX = 50
 
 type CachedMatches = { at: number; value: Promise<FltProductMatches> }
@@ -94,6 +98,19 @@ function matchKey(productIds: string[], filters: { id: string; rules: { source: 
     for (const r of f.rules) h.update(r.source).update('\x01').update(r.optionName).update('\x01').update(r.valueLabel).update('\0')
   }
   return h.digest('hex')
+}
+
+// Entries are in insertion order, so the moment one is still fresh, so is the rest.
+function dropExpiredMatches(now: number): void {
+  for (const [key, entry] of matchCache) {
+    if (now - entry.at < MATCH_TTL_MS) return
+    matchCache.delete(key)
+  }
+}
+
+/** How many answers are held, for the test that proves they do not linger. */
+export function filterMatchCacheSize(): number {
+  return matchCache.size
 }
 
 // Drops every cached answer on this instance. Other instances age theirs out
@@ -127,6 +144,7 @@ export async function getProductFilterMatches(productIds: string[], groups: FltG
   const hit = matchCache.get(key)
   if (hit && now - hit.at < MATCH_TTL_MS) return copyMatches(await hit.value)
 
+  dropExpiredMatches(now)
   const value = computeProductFilterMatches(productIds, withRules)
   matchCache.delete(key)
   matchCache.set(key, { at: now, value })
