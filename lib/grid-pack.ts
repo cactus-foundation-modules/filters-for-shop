@@ -52,7 +52,7 @@ import { compactId, expandId } from '@/modules/filters-for-shop/lib/compact-id'
 
 /** One group: what the panel prints for it, and how many entries of the filter
  *  table - taken in order, after the groups before it - are its filters. */
-export type FltPackedGroup = [id: string, name: string, slug: string, controlType: FltControlType, filterCount: number]
+export type FltPackedGroup = [id: string, name: string, slug: string, controlType: FltControlType, filterCount: number, countsOff?: 1]
 
 /** A list of strings, each written as how many characters it shares with the
  *  string before it plus whatever follows. */
@@ -222,7 +222,9 @@ export function packFilterGrid(data: FltGridData): FltPackedGrid {
   const filterBands: ([number | null, number | null] | null)[] = []
   const filterLeadDays: (number | null)[] = []
   for (const group of data.groups) {
-    groups.push([group.id, group.name, group.slug, group.controlType, group.filters.length])
+    groups.push(group.showCounts === false
+      ? [group.id, group.name, group.slug, group.controlType, group.filters.length, 1]
+      : [group.id, group.name, group.slug, group.controlType, group.filters.length])
     for (const filter of group.filters) {
       filters.appendInPlace(filter.id)
       filterLabels.push(filter.label)
@@ -359,7 +361,7 @@ export function unpackFilterGrid(packed: FltPackedGrid): FltGridData {
     )
 
   let groupFilterStart = 0
-  const groups = packed.groups.map(([id, name, slug, controlType, filterCount]) => {
+  const groups = packed.groups.map(([id, name, slug, controlType, filterCount, countsOff]) => {
     const start = groupFilterStart
     groupFilterStart += filterCount
     return {
@@ -367,6 +369,7 @@ export function unpackFilterGrid(packed: FltPackedGrid): FltGridData {
       name,
       slug,
       controlType,
+      ...(countsOff === 1 ? { showCounts: false as const } : {}),
       filters: Array.from({ length: filterCount }, (_, offset) => {
         const band = packed.filterBands?.[start + offset] ?? null
         const leadDays = packed.filterLeadDays?.[start + offset] ?? null

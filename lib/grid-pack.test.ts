@@ -308,3 +308,26 @@ function randomShelf(seed: number): FltGridData {
   if (chance(0.5)) shelf.preselect = some(filterIds, 2)
   return shelf
 }
+
+describe('packFilterGrid extras', () => {
+  it('carries counts-off, lead days, bands and the delivery calendar through the fold', () => {
+    const data: FltGridData = {
+      groups: [
+        { id: 'g-price', name: 'Price', slug: 'price', controlType: 'RANGE', filters: [{ id: 'f-under', label: 'Under £200', slug: 'under-200', swatch: null, band: [null, 200] }] },
+        { id: 'g-lead', name: 'Delivery', slug: 'delivery', controlType: 'CHECKBOX', showCounts: false, filters: [{ id: 'f-6', label: 'Within 6 working days', slug: 'within-6', swatch: null, leadDays: 6 }] },
+      ],
+      matrix: { p1: ['f-6'] },
+      swaps: { g: [], f: [], q: [], p: {} },
+      sortKeys: {},
+      deliveryCalendar: { timezone: 'Europe/London', cutoffTime: '12:00', workingDays: ['2026-11-26'] },
+      renderedAt: 1764000000000,
+    }
+    const back = unpackFilterGrid(packFilterGrid(data))
+    expect(back.groups[0]).not.toHaveProperty('showCounts')
+    expect(back.groups[0]?.filters[0]?.band).toEqual([null, 200])
+    expect(back.groups[1]?.showCounts).toBe(false)
+    expect(back.groups[1]?.filters[0]?.leadDays).toBe(6)
+    expect(back.deliveryCalendar).toEqual(data.deliveryCalendar)
+    expect(back.renderedAt).toBe(data.renderedAt)
+  })
+})

@@ -15,7 +15,7 @@ function toNumberOrNull(value: unknown): number | null {
 export async function listGroups(): Promise<FltGroup[]> {
   const [groupRows, filterRows, ruleRows] = await Promise.all([
     prisma.$queryRaw<Record<string, unknown>[]>`
-      SELECT "id", "name", "slug", "control_type", "kind", "position" FROM "flt_groups" ORDER BY "position", "created_at"
+      SELECT "id", "name", "slug", "control_type", "kind", "position", "show_counts" FROM "flt_groups" ORDER BY "position", "created_at"
     `,
     prisma.$queryRaw<Record<string, unknown>[]>`
       SELECT "id", "group_id", "label", "slug", "swatch", "swatch_small", "swatch_tiny", "price_min", "price_max", "position" FROM "flt_filters" ORDER BY "position", "created_at"
@@ -65,6 +65,7 @@ export async function listGroups(): Promise<FltGroup[]> {
     controlType: row.control_type as FltControlType,
     kind: (row.kind as FltGroupKind | null) ?? 'VALUES',
     position: row.position as number,
+    showCounts: row.show_counts !== false,
     filters: filtersByGroup.get(row.id as string) ?? [],
   }))
 }
@@ -102,12 +103,13 @@ export async function createGroup(fields: { name: string; slug: string; controlT
   return { id: row.id }
 }
 
-export async function updateGroup(id: string, fields: { name?: string; slug?: string; controlType?: FltControlType }): Promise<void> {
+export async function updateGroup(id: string, fields: { name?: string; slug?: string; controlType?: FltControlType; showCounts?: boolean }): Promise<void> {
   await prisma.$executeRaw`
     UPDATE "flt_groups" SET
       "name" = COALESCE(${fields.name ?? null}, "name"),
       "slug" = COALESCE(${fields.slug ?? null}, "slug"),
-      "control_type" = COALESCE(${fields.controlType ?? null}, "control_type")
+      "control_type" = COALESCE(${fields.controlType ?? null}, "control_type"),
+      "show_counts" = COALESCE(${fields.showCounts ?? null}::boolean, "show_counts")
     WHERE "id" = ${id}
   `
 }

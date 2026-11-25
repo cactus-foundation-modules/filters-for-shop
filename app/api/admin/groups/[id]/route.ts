@@ -7,6 +7,7 @@ import { deleteGroup, ensureUniqueGroupSlug, getGroup, updateGroup } from '@/mod
 const PatchBody = z.object({
   name: z.string().min(1).max(80).optional(),
   controlType: z.enum(['CHECKBOX', 'SWATCH', 'IMAGE', 'DROPDOWN', 'RANGE']).optional(),
+  showCounts: z.boolean().optional(),
 })
 
 export async function PATCH(request: Request, ctx: { params: Promise<Record<string, string>> }) {
@@ -24,7 +25,7 @@ export async function PATCH(request: Request, ctx: { params: Promise<Record<stri
   // Renaming re-derives the slug (it is the query-string parameter, so it
   // should read like the heading), keeping it unique against the others.
   const slug = name && name !== existing.name ? await ensureUniqueGroupSlug(slugify(name) || 'filter-group', id) : undefined
-  await updateGroup(id, { name, slug, controlType: parsed.data.controlType })
+  await updateGroup(id, { name, slug, controlType: parsed.data.controlType, showCounts: parsed.data.showCounts })
   return NextResponse.json({ ok: true })
 }
 

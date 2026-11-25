@@ -27,6 +27,7 @@ function group(over: Partial<FltGroup> & { id: string; filters: FltFilter[] }): 
     controlType: 'CHECKBOX',
     kind: 'VALUES',
     position: 0,
+    showCounts: true,
     ...over,
   }
 }
@@ -173,5 +174,18 @@ describe('applyDeliveryRules', () => {
     const matrix = new Map<string, string[]>()
     applyDeliveryRules(matrix, groups, ['chair'], catalogue)
     expect(matrix.get('chair')).toEqual(['within-3', 'within-16'])
+  })
+})
+
+describe('offerGroups show counts', () => {
+  it('marks a group with counts switched off, and leaves the rest bare', () => {
+    const groups = [
+      group({ id: 'colour', filters: [filter({ id: 'red' }), filter({ id: 'blue' })] }),
+      group({ id: 'lead', showCounts: false, filters: [filter({ id: 'quick' }), filter({ id: 'slow' })] }),
+    ]
+    const matrix = new Map([['p', ['red', 'blue', 'quick', 'slow']]])
+    const offered = offerGroups(groups, matrix, true, new Set())
+    expect(offered.find((g) => g.id === 'colour')).not.toHaveProperty('showCounts')
+    expect(offered.find((g) => g.id === 'lead')?.showCounts).toBe(false)
   })
 })

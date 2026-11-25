@@ -30,15 +30,22 @@ describe('lead date', () => {
     expect(leadDate(calendar, 40, new Date('2026-11-25T09:00:00Z'))).toBeNull()
   })
 
-  it('words the date the house way', () => {
-    expect(formatLeadDate('2026-12-01', '2026-11-25')).toBe('Tuesday the 1st of December')
-    expect(formatLeadDate('2026-12-22', '2026-11-25')).toBe('Tuesday the 22nd of December')
-    expect(formatLeadDate('2026-12-13', '2026-11-25')).toBe('Sunday the 13th of December')
-    expect(formatLeadDate('2027-01-04', '2026-12-23')).toBe('Monday the 4th of January 2027')
+  it('says only as much of the date as it needs to', () => {
+    // Within six days: the weekday alone, even across a month end.
+    expect(formatLeadDate('2026-11-27', '2026-11-25')).toBe('Friday')
+    expect(formatLeadDate('2026-12-01', '2026-11-25')).toBe('Tuesday')
+    // Later the same month: weekday and day.
+    expect(formatLeadDate('2026-12-11', '2026-12-01')).toBe('Friday the 11th')
+    expect(formatLeadDate('2026-12-22', '2026-12-01')).toBe('Tuesday the 22nd')
+    // Another month: the lot, with the year only when it changes.
+    expect(formatLeadDate('2026-12-07', '2026-11-25')).toBe('Monday the 7th of Dec')
+    expect(formatLeadDate('2026-12-13', '2026-11-25')).toBe('Sunday the 13th of Dec')
+    expect(formatLeadDate('2027-01-04', '2026-12-23')).toBe('Monday the 4th of Jan 2027')
+    expect(formatLeadDate('2026-11-25', '2026-11-25')).toBe('today')
   })
 
   it('labels a lead-time filter, or leaves it alone', () => {
-    expect(leadDateLabel(calendar, 3, new Date('2026-11-25T09:00:00Z'))).toBe('By Monday the 30th of November')
+    expect(leadDateLabel(calendar, 3, new Date('2026-11-25T09:00:00Z'))).toBe('By Monday')
     expect(leadDateLabel(null, 3, new Date())).toBeNull()
     expect(leadDateLabel(calendar, undefined, new Date())).toBeNull()
   })

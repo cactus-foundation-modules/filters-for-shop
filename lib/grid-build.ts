@@ -172,6 +172,8 @@ export function offerGroups(
       id: group.id,
       name: group.name,
       slug: group.slug,
+      // Only spelled out when off, so the wire carries nothing for the rest.
+      ...(group.showCounts === false ? { showCounts: false as const } : {}),
       controlType: slider ? 'RANGE' as const : group.controlType === 'RANGE' ? 'CHECKBOX' as const : group.controlType,
       filters: group.filters
         .filter((f) => (group.kind === 'PRICE' ? f.priceMin !== null || f.priceMax !== null : f.rules.length > 0))

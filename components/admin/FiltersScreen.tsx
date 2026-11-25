@@ -348,6 +348,18 @@ function GroupCard({ group, catalogue, busy, send, canMoveUp, canMoveDown, onMov
                 <option key={k} value={k}>{CONTROL_LABELS[k]}</option>
               ))}
           </select>
+          {/* Counts mean nothing on a slider, so the switch is not offered there. */}
+          {group.controlType !== 'RANGE' && (
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.8125rem', color: 'var(--color-text-secondary)' }}>
+              <input
+                type="checkbox"
+                checked={group.showCounts}
+                onChange={(e) => void send(`${BASE}/groups/${group.id}`, 'PATCH', { showCounts: e.target.checked })}
+                disabled={busy}
+              />
+              Show counts
+            </label>
+          )}
           <button className="btn btn-secondary btn-sm" disabled={busy || !canMoveUp} onClick={() => onMove(-1)} aria-label={`Move ${group.name} up`}>↑</button>
           <button className="btn btn-secondary btn-sm" disabled={busy || !canMoveDown} onClick={() => onMove(1)} aria-label={`Move ${group.name} down`}>↓</button>
           {!renaming && <button className="btn btn-secondary btn-sm" disabled={busy} onClick={() => setRenaming(true)}>Rename</button>}

@@ -22,7 +22,9 @@ import { leadDateLabel, type FltDeliveryCalendar } from '@/modules/filters-for-s
 // `leadDays` only on a filter that stands for delivery lead times alone: the
 // working-day count the panel turns into a date off `deliveryCalendar`.
 export type FltPublicFilter = { id: string; label: string; slug: string; swatch: string | null; band?: [min: number | null, max: number | null]; leadDays?: number }
-export type FltPublicGroup = { id: string; name: string; slug: string; controlType: FltControlType; filters: FltPublicFilter[] }
+// `showCounts: false` where the owner switched counts off for this one group,
+// beneath the block's own setting; absent everywhere else.
+export type FltPublicGroup = { id: string; name: string; slug: string; controlType: FltControlType; showCounts?: false; filters: FltPublicFilter[] }
 
 // Which filters each enabled variation resolves, interned. Filter ids appear
 // once in `filterIds`, each distinct combination once in `combos`, and a
@@ -1097,6 +1099,8 @@ export function FilterShell({ packedGrid, showSort, defaultSort = '', columns, p
             {shownGroups.map((group) => {
               const closed = closedGroups.has(group.id)
               const bodyId = `flt-body-${group.id}`
+              // The block's setting, unless the owner switched this group off.
+              const counted = showCounts && group.showCounts !== false
               const pickedInGroup = group.controlType === 'RANGE' ? (rangeChip ? 1 : 0) : selected.get(group.id)?.size ?? 0
               const foldable = group.controlType === 'CHECKBOX' && group.filters.length > TICK_FOLD_LIMIT + TICK_FOLD_SLACK
               const unfolded = !foldable || unfoldedGroups.has(group.id)
@@ -1141,7 +1145,7 @@ export function FilterShell({ packedGrid, showSort, defaultSort = '', columns, p
                         <option value="">Any</option>
                         {group.filters.map((filter) => (
                           <option key={filter.id} value={filter.id}>
-                            {labelOf(filter)}{showCounts ? ` (${count(filter.id, group.id)})` : ''}
+                            {labelOf(filter)}{counted ? ` (${count(filter.id, group.id)})` : ''}
                           </option>
                         ))}
                       </select>
@@ -1157,7 +1161,7 @@ export function FilterShell({ packedGrid, showSort, defaultSort = '', columns, p
                               type="button"
                               className={`flt-image${on ? ' is-on' : ''}${n === 0 && !on ? ' is-dead' : ''}`}
                               aria-pressed={on}
-                              title={showCounts ? `${labelOf(filter)} (${n})` : labelOf(filter)}
+                              title={counted ? `${labelOf(filter)} (${n})` : labelOf(filter)}
                               onClick={() => toggle(group.id, filter.id)}
                             >
                               {picture ? (
@@ -1188,7 +1192,7 @@ export function FilterShell({ packedGrid, showSort, defaultSort = '', columns, p
                               type="button"
                               className={`flt-swatch${on ? ' is-on' : ''}${n === 0 && !on ? ' is-dead' : ''}`}
                               aria-pressed={on}
-                              title={showCounts ? `${labelOf(filter)} (${n})` : labelOf(filter)}
+                              title={counted ? `${labelOf(filter)} (${n})` : labelOf(filter)}
                               onClick={() => toggle(group.id, filter.id)}
                             >
                               <span className="flt-swatch-dot" style={dotStyle} aria-hidden />
@@ -1206,7 +1210,7 @@ export function FilterShell({ packedGrid, showSort, defaultSort = '', columns, p
                             <label key={filter.id} className={`flt-tick${n === 0 && !on ? ' is-dead' : ''}`}>
                               <input type="checkbox" checked={on} onChange={() => toggle(group.id, filter.id)} />
                               <span>{labelOf(filter)}</span>
-                              {showCounts && <span className="flt-count">{n}</span>}
+                              {counted && <span className="flt-count">{n}</span>}
                             </label>
                           )
                         })}

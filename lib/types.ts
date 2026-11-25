@@ -65,6 +65,9 @@ export type FltGroup = {
   controlType: FltControlType
   kind: FltGroupKind
   position: number
+  // Whether this group's ticks carry product counts, beneath the grid block's
+  // own "Show counts" setting (migration 007). True unless switched off.
+  showCounts: boolean
   filters: FltFilter[]
 }
 

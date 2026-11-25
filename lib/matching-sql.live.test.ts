@@ -213,7 +213,7 @@ suite('filters-for-shop matching SQL, against a real Postgres', () => {
         name: 'Colour',
         slug: 'colour',
         controlType: 'SWATCH',
-        kind: 'VALUES',
+        kind: 'VALUES', showCounts: true,
         position: 0,
         filters: [
           { id: filterId.blue!, groupId: colourGroup, label: 'Blue', slug: 'blue', swatch: null, swatchSmall: null, swatchTiny: null, position: 0, priceMin: null, priceMax: null, rules: [rule('blue', 'Colour', 'Blue')] },
@@ -225,7 +225,7 @@ suite('filters-for-shop matching SQL, against a real Postgres', () => {
         name: 'Finish',
         slug: 'finish',
         controlType: 'SWATCH',
-        kind: 'VALUES',
+        kind: 'VALUES', showCounts: true,
         position: 1,
         filters: [
           { id: filterId.oak!, groupId: finishGroup, label: 'Oak', slug: 'oak', swatch: null, swatchSmall: null, swatchTiny: null, position: 0, priceMin: null, priceMax: null, rules: [rule('oak', 'Finish', 'Oak')] },
@@ -326,7 +326,7 @@ suite('filters-for-shop matching SQL, against a real Postgres', () => {
     const withDelivery = [
       ...groups,
       {
-        id: 'delivery-group', name: 'Delivery lead time', slug: 'delivery-lead-time', controlType: 'CHECKBOX' as const, kind: 'VALUES' as const, position: 9,
+        id: 'delivery-group', name: 'Delivery lead time', slug: 'delivery-lead-time', controlType: 'CHECKBOX' as const, kind: 'VALUES' as const, position: 9, showCounts: true,
         filters: [{
           id: 'delivery-filter', groupId: 'delivery-group', label: 'Within 3 working days', slug: 'within-3', swatch: null, swatchSmall: null, swatchTiny: null,
           position: 0, priceMin: null, priceMax: null,
