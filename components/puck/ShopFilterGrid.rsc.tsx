@@ -18,7 +18,7 @@ import { listFilterShelf, type FltShelfScope } from '@/modules/filters-for-shop/
 import { FLT_SHELF_CEILING } from '@/modules/filters-for-shop/lib/shelf-plan'
 import { CATEGORY_GROUP_ID, CATEGORY_GROUP_SLUG, CATEGORY_GROUP_NAME, buildBranchIndex, productBranchFilterIds, categoryFilterId } from '@/modules/filters-for-shop/lib/category-filter'
 import { applyDeliveryRules, applyPriceBands, internVariations, offerGroups, wantsDeliveryFacts } from '@/modules/filters-for-shop/lib/grid-build'
-import { getDeliveryFacts } from '@/modules/filters-for-shop/lib/delivery'
+import { calendarForOffer, getDeliveryFacts } from '@/modules/filters-for-shop/lib/delivery'
 import { sortProductIds, sortValueFromParam, type FltSortKey } from '@/modules/filters-for-shop/lib/sort'
 import { FilterShell, type FltPublicGroup } from '@/modules/filters-for-shop/components/public/FilterShell'
 import { shopFilterCss } from '@/modules/filters-for-shop/components/public/filter-css'
@@ -157,7 +157,7 @@ async function ShopFilterGridRscBody(props: ShopFilterGridProps) {
     wantCategoryFilter ? listCategories() : Promise.resolve([]),
     wantCategoryFilter ? getProductCategoryIdsForProducts(productIds) : Promise.resolve(new Map<string, string[]>()),
     // Only paid for when a filter actually asks a delivery question.
-    wantsDeliveryFacts(groups) ? getDeliveryFacts() : Promise.resolve(new Map()),
+    wantsDeliveryFacts(groups) ? getDeliveryFacts() : Promise.resolve({ listings: new Map(), products: new Map() }),
   ])
 
   const { tagById, tagsById } = buildTagMaps(tags)
@@ -183,8 +183,10 @@ async function ShopFilterGridRscBody(props: ShopFilterGridProps) {
   // PRICE groups, matched against the same figure the card prints - see
   // lib/grid-build.ts.
   applyPriceBands(matrix, groups, priceOf)
-  // DELIVERY rules, listing-wide like the bands - see lib/delivery.ts.
-  applyDeliveryRules(matrix, groups, productIds, deliveryFacts)
+  // DELIVERY rules: the listing in the matrix, and each variation in its own
+  // combination, so a delivery tick has to be true of the variation the other
+  // ticks picked - see applyDeliveryRules.
+  applyDeliveryRules(matrix, groups, productIds, deliveryFacts, combos)
 
   // Each product earns a filter id per sub-category branch it is filed on, so
   // the Category group behaves exactly like an admin-defined one - facet
@@ -241,9 +243,13 @@ async function ShopFilterGridRscBody(props: ShopFilterGridProps) {
   // there, which nothing could then clear.
   const offeredFilterIds = new Set(offered.flatMap((g) => g.filters.map((f) => f.id)))
   const preselect = [...preselectedIds].filter((id) => offeredFilterIds.has(id))
+  // Only when a lead-time filter is actually on offer: it is what turns
+  // "Within 6 working days" into a date. Memoised in lib/delivery.ts.
+  const leadCalendar = await calendarForOffer(offered)
 
   // Interned for the wire - see lib/grid-build.ts. Price and sub-category ids
-  // are deliberately absent from `combos` by construction: they were added to
+  // are deliberately absent from `combos` by construction (delivery ids are not -
+  // see above): they were added to
   // the matrix above and belong to the listing, not to any one variation, so a
   // cross-group check must not hold a variation to them.
   const variationIndex = internVariations(combos)
@@ -351,6 +357,7 @@ async function ShopFilterGridRscBody(props: ShopFilterGridProps) {
           serverOrder,
           renderedIds: onDemand ? renderIds : undefined,
           preselect,
+          ...leadCalendar,
         })}
         showSort={props.showSort !== 'no'}
         defaultSort={defaultSort}

@@ -1,5 +1,5 @@
 import { FLT_DELIVERY_LEAD_TIME, FLT_DELIVERY_SERVICE, leadTimeDays, priceInBand, type FltGroup, type FltRule } from '@/modules/filters-for-shop/lib/types'
-import type { FltDeliveryFacts } from '@/modules/filters-for-shop/lib/delivery'
+import type { FltDeliveryCatalogue, FltDeliveryFacts } from '@/modules/filters-for-shop/lib/delivery'
 import type { FltCombo } from '@/modules/filters-for-shop/lib/db/matching'
 import type { FltPublicGroup, FltVariationIndex } from '@/modules/filters-for-shop/components/public/FilterShell'
 
@@ -62,17 +62,26 @@ export function deliveryRuleMatches(rule: Pick<FltRule, 'optionName' | 'valueLab
   return false
 }
 
-/** Add the DELIVERY-rule filters each listing matches to the matrix, in place.
+/** Add the DELIVERY-rule filters each listing matches, in place: to the matrix
+ *  from the listing's rolled-up facts, and to each variation's combination from
+ *  that variation's own child product.
  *
- *  Listing-wide, like a price band: the facts are rolled up from the listing's
- *  variations (lib/delivery.ts), so these ids stay out of the per-variation
- *  combos and a cross-group check never holds one variation to them. */
+ *  The second half is what makes "Yellow" plus "Within 3 working days" honest. A
+ *  chair sold in black from stock and in yellow made to order offers three days
+ *  as a LISTING, but no yellow one arrives in three; with the delivery filters in
+ *  the combinations the cross-group check (lib/filter-logic.ts) needs one
+ *  variation to be both. A listing with no variations keeps the listing answer.
+ *
+ *  Combinations are replaced, never edited: their arrays are shared with the
+ *  match cache (lib/db/matching.ts copyMatches). */
 export function applyDeliveryRules(
   matrix: Map<string, string[]>,
   groups: FltGroup[],
   productIds: string[],
-  facts: Map<string, FltDeliveryFacts>,
+  catalogue: FltDeliveryCatalogue,
+  combos?: Map<string, FltCombo[]>,
 ): void {
+  const facts = catalogue.listings
   const deliveryFilters = groups
     .filter((g) => g.kind === 'VALUES')
     .flatMap((g) => g.filters)
@@ -88,6 +97,14 @@ export function applyDeliveryRules(
       if (!list.includes(f.id)) list.push(f.id)
       matrix.set(productId, list)
     }
+    const variations = combos?.get(productId)
+    if (!variations) continue
+    combos?.set(productId, variations.map((combo) => {
+      const childFacts = combo.childId ? catalogue.products.get(combo.childId) : undefined
+      if (!childFacts) return combo
+      const extra = deliveryFilters.filter((f) => f.rules.some((rule) => deliveryRuleMatches(rule, childFacts))).map((f) => f.id)
+      return extra.length > 0 ? { ...combo, filterIds: [...combo.filterIds, ...extra] } : combo
+    }))
   }
 }
 
@@ -166,13 +183,21 @@ export function offerGroups(
         // swatch is drawn as a 14px dot or a 56px tile in this panel, so the
         // tiny copy is the right file and the full-size photograph exists for
         // the 3D module, not for this.
-        .map((f) => ({
+        .map((f) => {
+          // A filter standing only for lead times shows as a date in the
+          // panel ("By Tuesday the 1st of December"); this is the count it
+          // stands for - the longest, where several were ticked.
+          const leads = f.rules.map((r) => (r.source === 'DELIVERY' && r.optionName === FLT_DELIVERY_LEAD_TIME ? leadTimeDays(r.valueLabel) : null))
+          const leadDays = leads.length > 0 && leads.every((d) => d !== null) ? Math.max(...(leads as number[])) : undefined
+          return {
           id: f.id,
           label: f.label,
           slug: f.slug,
           swatch: f.swatchTiny ?? f.swatchSmall ?? f.swatch,
           ...(slider ? { band: [f.priceMin, f.priceMax] as [number | null, number | null] } : {}),
-        })),
+          ...(leadDays !== undefined ? { leadDays } : {}),
+          }
+        }),
     }))
     // A slider is a choice in itself, bands or none; the shell hides it when
     // the shelf's prices give it nowhere to slide.

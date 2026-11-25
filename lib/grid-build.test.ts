@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { applyPriceBands, internVariations, offerGroups } from './grid-build'
+import { applyDeliveryRules, applyPriceBands, internVariations, offerGroups } from './grid-build'
+import { facetCount, matchesSelection, type FltMatrixEntry } from './filter-logic'
+import type { FltCombo } from './db/matching'
 import type { FltFilter, FltGroup } from './types'
 
 function filter(over: Partial<FltFilter> & { id: string }): FltFilter {
@@ -127,5 +129,49 @@ describe('offerGroups', () => {
     })]
     expect(offerGroups(swatched, matrix, false, new Set())[0]?.filters.map((f) => f.swatch))
       .toEqual(['/tiny.jpg', '/small.jpg', '#c0c'])
+  })
+})
+
+describe('applyDeliveryRules', () => {
+  // A chair in black from stock (3 working days) and yellow made to order (16).
+  const groups = [
+    group({ id: 'colour', filters: [filter({ id: 'black' }), filter({ id: 'yellow' })] }),
+    group({
+      id: 'lead',
+      filters: [
+        filter({ id: 'within-3', rules: [{ id: 'r3', source: 'DELIVERY', optionName: 'Delivery lead time', valueLabel: '3 working days' }] }),
+        filter({ id: 'within-16', rules: [{ id: 'r16', source: 'DELIVERY', optionName: 'Delivery lead time', valueLabel: '16 working days' }] }),
+      ],
+    }),
+  ]
+  const facts = (days: number[]) => ({ services: new Set(['Flat-Pack']), leadDays: days })
+  const catalogue = {
+    listings: new Map([['chair', facts([3, 16])]]),
+    products: new Map([['child-black', facts([3])], ['child-yellow', facts([16])]]),
+  }
+
+  it('puts each variation\'s own lead time in its combination, without touching the cached ones', () => {
+    const blackCombo: FltCombo = { filterIds: ['black'], childId: 'child-black' }
+    const yellowCombo: FltCombo = { filterIds: ['yellow'], childId: 'child-yellow' }
+    const matrix = new Map([['chair', ['black', 'yellow']]])
+    const combos = new Map([['chair', [blackCombo, yellowCombo]]])
+    applyDeliveryRules(matrix, groups, ['chair'], catalogue, combos)
+
+    expect(matrix.get('chair')).toEqual(['black', 'yellow', 'within-3', 'within-16'])
+    expect(combos.get('chair')?.map((c) => c.filterIds)).toEqual([['black', 'within-3', 'within-16'], ['yellow', 'within-16']])
+    expect(blackCombo.filterIds).toEqual(['black'])
+
+    const entry: FltMatrixEntry = ['chair', matrix.get('chair') ?? [], combos.get('chair')?.map((c) => c.filterIds)]
+    const yellow = new Map([['colour', new Set(['yellow'])]])
+    // Yellow in three days: no such chair. Yellow in sixteen: yes.
+    expect(facetCount('within-3', 'lead', [entry], yellow)).toBe(0)
+    expect(facetCount('within-16', 'lead', [entry], yellow)).toBe(1)
+    expect(matchesSelection(entry[1], new Map([['colour', new Set(['black'])], ['lead', new Set(['within-3'])]]), entry[2])).toBe(true)
+  })
+
+  it('keeps the listing answer for a product with no variations', () => {
+    const matrix = new Map<string, string[]>()
+    applyDeliveryRules(matrix, groups, ['chair'], catalogue)
+    expect(matrix.get('chair')).toEqual(['within-3', 'within-16'])
   })
 })

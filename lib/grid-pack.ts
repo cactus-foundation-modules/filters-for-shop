@@ -133,6 +133,12 @@ export type FltPackedGrid = {
    *  price bands, null on every other filter. Absent where no group is a
    *  slider, which is every grid that came before. */
   filterBands?: ([min: number | null, max: number | null] | null)[]
+  /** Lined up the same way: a lead-time filter's working-day count, null on
+   *  every other. Absent where no filter is one. */
+  filterLeadDays?: (number | null)[]
+  /** Passed through untouched - see FltGridData. */
+  deliveryCalendar?: FltGridData['deliveryCalendar']
+  renderedAt?: number
   preselect?: number[]
   /** Lined up with the product table: filter table positions in the order the
    *  matrix row held them, or null where the matrix holds no row for it. */
@@ -214,6 +220,7 @@ export function packFilterGrid(data: FltGridData): FltPackedGrid {
   const filterSlugs: string[] = []
   const filterSwatches: (string | null)[] = []
   const filterBands: ([number | null, number | null] | null)[] = []
+  const filterLeadDays: (number | null)[] = []
   for (const group of data.groups) {
     groups.push([group.id, group.name, group.slug, group.controlType, group.filters.length])
     for (const filter of group.filters) {
@@ -222,6 +229,7 @@ export function packFilterGrid(data: FltGridData): FltPackedGrid {
       filterSlugs.push(filter.slug)
       filterSwatches.push(filter.swatch)
       filterBands.push(filter.band ?? null)
+      filterLeadDays.push(filter.leadDays ?? null)
     }
   }
   const filterPosition = (id: string) => filters.intern(id)
@@ -289,6 +297,9 @@ export function packFilterGrid(data: FltGridData): FltPackedGrid {
   }
   if (data.renderedIds) packed.renderedIds = data.renderedIds.map((id) => products.intern(id))
   if (filterBands.some((band) => band !== null)) packed.filterBands = filterBands
+  if (filterLeadDays.some((days) => days !== null)) packed.filterLeadDays = filterLeadDays
+  if (data.deliveryCalendar) packed.deliveryCalendar = data.deliveryCalendar
+  if (data.renderedAt !== undefined) packed.renderedAt = data.renderedAt
   if (data.preselect) packed.preselect = data.preselect.map(filterPosition)
   if (variations) packed.variations = variations
   // Last, because everything above may have added a filter the groups do not offer.
@@ -358,12 +369,14 @@ export function unpackFilterGrid(packed: FltPackedGrid): FltGridData {
       controlType,
       filters: Array.from({ length: filterCount }, (_, offset) => {
         const band = packed.filterBands?.[start + offset] ?? null
+        const leadDays = packed.filterLeadDays?.[start + offset] ?? null
         return {
           id: filterAt(start + offset),
           label: packed.filterLabels[start + offset] ?? '',
           slug: packed.filterSlugs[start + offset] ?? '',
           swatch: packed.filterSwatches[start + offset] ?? null,
           ...(band ? { band } : {}),
+          ...(leadDays !== null ? { leadDays } : {}),
         }
       }),
     }
@@ -428,5 +441,7 @@ export function unpackFilterGrid(packed: FltPackedGrid): FltGridData {
   }
   if (packed.renderedIds) data.renderedIds = packed.renderedIds.map(productAt)
   if (packed.preselect) data.preselect = packed.preselect.map(filterAt)
+  if (packed.deliveryCalendar) data.deliveryCalendar = packed.deliveryCalendar
+  if (packed.renderedAt !== undefined) data.renderedAt = packed.renderedAt
   return data
 }

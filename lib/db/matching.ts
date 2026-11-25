@@ -39,6 +39,10 @@ export type FltSwap = {
 // is built from the swaps above and needs nothing from here.
 export type FltCombo = {
   filterIds: string[]
+  // The variation's own child product, set only when a DELIVERY rule exists:
+  // delivery is answered per child product (lib/delivery.ts), and this is how
+  // a variation's own lead time and services join its combination.
+  childId?: string
 }
 
 export type FltProductMatches = {
@@ -192,6 +196,14 @@ async function computeProductFilterMatches(productIds: string[], withRules: Rule
   const useChildSpecs = useAttributes && variationsPresent
   if (!useOptions && !useAttributes) return emptyMatches()
 
+  // With a delivery filter about, every variation keeps its own combination
+  // rather than folding into the first one with the same answers: two yellow
+  // chairs can share every option filter and still differ in lead time, and the
+  // fold would let the quick one answer for the slow one. The delivery pass in
+  // lib/grid-build.ts adds each variation's delivery filters, and the wire
+  // folds identical combinations later anyway (internVariations).
+  const perVariation = withRules.some((f) => f.rules.some((r) => r.source === 'DELIVERY'))
+
   const ctes: Prisma.Sql[] = []
   const parts: Prisma.Sql[] = []
 
@@ -279,8 +291,8 @@ async function computeProductFilterMatches(productIds: string[], withRules: Rule
     // the earliest variation in the owner's order; the final ORDER BY puts a
     // product's combinations back into that same variant order.
     ctes.push(Prisma.sql`combos AS (
-      SELECT DISTINCT ON (folded.product_id, folded.combo)
-        folded.product_id, folded.combo, v."position" AS variant_position, v."id" AS variant_id
+      SELECT ${perVariation ? Prisma.empty : Prisma.sql`DISTINCT ON (folded.product_id, folded.combo)`}
+        folded.product_id, folded.combo, v."position" AS variant_position, v."id" AS variant_id, v."child_product_id" AS child_id
       FROM (
         SELECT product_id, variant_id, array_agg(DISTINCT filter_id) AS combo
         FROM (${Prisma.join(pairSources, ' UNION ALL ')}) pairs
@@ -290,7 +302,7 @@ async function computeProductFilterMatches(productIds: string[], withRules: Rule
       ORDER BY folded.product_id, folded.combo, v."position" ASC, v."created_at" ASC, v."id" ASC
     )`)
     parts.push(Prisma.sql`
-      SELECT 'C', c.product_id, NULL, NULL, NULL, NULL, NULL, c.combo, c.variant_position, c.variant_id
+      SELECT 'C', c.product_id, NULL, c.child_id, NULL, NULL, NULL, c.combo, c.variant_position, c.variant_id
       FROM combos c`)
   }
 
@@ -333,7 +345,8 @@ async function computeProductFilterMatches(productIds: string[], withRules: Rule
       addMatch(productId, row.filter_id as string)
     } else {
       const list = combos.get(productId) ?? []
-      list.push({ filterIds: row.combo as string[] })
+      const childId = perVariation ? (row.child_id as string | null) : null
+      list.push(childId ? { filterIds: row.combo as string[], childId } : { filterIds: row.combo as string[] })
       combos.set(productId, list)
     }
   }

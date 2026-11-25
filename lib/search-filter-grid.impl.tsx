@@ -10,7 +10,7 @@ import { listGroups } from '@/modules/filters-for-shop/lib/db/filters'
 import { getSettings } from '@/modules/filters-for-shop/lib/db/settings'
 import { getProductFilterMatches } from '@/modules/filters-for-shop/lib/db/matching'
 import { applyDeliveryRules, applyPriceBands, internVariations, offerGroups, wantsDeliveryFacts } from '@/modules/filters-for-shop/lib/grid-build'
-import { getDeliveryFacts } from '@/modules/filters-for-shop/lib/delivery'
+import { calendarForOffer, getDeliveryFacts } from '@/modules/filters-for-shop/lib/delivery'
 import { packSwaps } from '@/modules/filters-for-shop/lib/swap-pack'
 import { packFilterGrid } from '@/modules/filters-for-shop/lib/grid-pack'
 import { renderTaggedCards } from '@/modules/filters-for-shop/lib/tagged-cards'
@@ -88,7 +88,7 @@ export async function renderSearchFilterGrid(
     }
   }
   applyPriceBands(matrix, groups, priceOf)
-  if (wantsDeliveryFacts(groups)) applyDeliveryRules(matrix, groups, ids, await getDeliveryFacts())
+  if (wantsDeliveryFacts(groups)) applyDeliveryRules(matrix, groups, ids, await getDeliveryFacts(), combos)
 
   const offered = offerGroups(groups, matrix, settings.hideEmptyFilters, new Set<string>())
   // Nothing here can be cut by anything: hand the caller back its plain cards
@@ -97,6 +97,7 @@ export async function renderSearchFilterGrid(
 
   const columns = Math.max(2, Math.min(4, opts?.columns ?? 3))
   const pageSize = Math.max(1, Math.floor(Number(opts?.pageSize)) || 24)
+  const leadCalendar = await calendarForOffer(offered)
   const cards = await renderTaggedCards(template, items, config.productUrlStyle, columns)
 
   return (
@@ -111,6 +112,7 @@ export async function renderSearchFilterGrid(
           swaps: packSwaps(swaps),
           sortKeys,
           serverOrder: ids,
+          ...leadCalendar,
         })}
         showSort={false}
         columns={columns}

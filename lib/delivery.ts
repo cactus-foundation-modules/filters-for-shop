@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/db/prisma'
 import { hasVariationsTables } from '@/modules/filters-for-shop/lib/variations-probe'
+import type { FltDeliveryCalendar } from '@/modules/filters-for-shop/lib/lead-date'
 
 // Delivery facts for DELIVERY rules: which services each listing can be bought
 // with, and how many working days each of them takes.
@@ -10,11 +11,13 @@ import { hasVariationsTables } from '@/modules/filters-for-shop/lib/variations-p
 // one simply has no delivery facts, and its delivery filters match nothing (and
 // so are culled from the panel like any other empty filter).
 //
-// LISTING-wide, like a price band. A listing with variations is never the thing
-// bought, so its own row often resolves to no service at all; its enabled
-// variations' child products are asked too and their answers rolled up onto the
-// listing. A listing therefore "offers Installation" when any of its variations
-// does, and its lead time is the quickest any of them manages.
+// Two answers. A listing with variations is never the thing bought, so its own
+// row often resolves to no service at all; its enabled variations' child
+// products are asked too. Their answers are rolled up onto the listing (it
+// "offers Installation" when any variation does, and its lead time is the
+// quickest any of them manages) AND kept per child product, so a variation's
+// own delivery can sit in its combination beside its colour - see
+// applyDeliveryRules in lib/grid-build.ts.
 //
 // The provider is asked for the WHOLE catalogue once and the answer held for
 // ten minutes, rather than once per shelf. The counts it returns move only when
@@ -27,6 +30,14 @@ import { hasVariationsTables } from '@/modules/filters-for-shop/lib/variations-p
 
 const POINT = 'shop.product-delivery-timing'
 const TTL_MS = 10 * 60_000
+
+/** The whole catalogue's answer: rolled up per listing (what a listing offers
+ *  across all its variations), and per product asked (each variation's own
+ *  child product, for the per-variation check - see lib/grid-build.ts). */
+export type FltDeliveryCatalogue = {
+  listings: Map<string, FltDeliveryFacts>
+  products: Map<string, FltDeliveryFacts>
+}
 
 export type FltDeliveryFacts = {
   /** Every service label the listing (or any of its variations) is offered. */
@@ -64,10 +75,24 @@ function readOptions(value: unknown): { label: string; days: number }[] {
   return out
 }
 
-async function loadCatalogue(): Promise<Map<string, FltDeliveryFacts>> {
-  const out = new Map<string, FltDeliveryFacts>()
+function emptyCatalogue(): FltDeliveryCatalogue {
+  return { listings: new Map(), products: new Map() }
+}
+
+function addOptions(into: Map<string, FltDeliveryFacts>, id: string, options: { label: string; days: number }[]): void {
+  const facts = into.get(id) ?? { services: new Set<string>(), leadDays: [] }
+  for (const option of options) {
+    facts.services.add(option.label)
+    facts.leadDays.push(option.days)
+  }
+  into.set(id, facts)
+}
+
+async function loadCatalogue(): Promise<FltDeliveryCatalogue> {
+  const result = emptyCatalogue()
+  const out = result.listings
   const provider = await timingProvider()
-  if (!provider) return out
+  if (!provider) return result
 
   const listings = await prisma.$queryRaw<{ id: string }[]>`
     SELECT "id" FROM "shp_products" WHERE "status" = 'ACTIVE'
@@ -83,35 +108,33 @@ async function loadCatalogue(): Promise<Map<string, FltDeliveryFacts>> {
     `
     for (const row of children) listingOf.set(row.child_product_id, row.product_id)
   }
-  if (listingOf.size === 0) return out
+  if (listingOf.size === 0) return result
 
   const answered = await provider([...listingOf.keys()])
-  if (!(answered instanceof Map)) return out
+  if (!(answered instanceof Map)) return result
   for (const [productId, value] of answered) {
     const listingId = typeof productId === 'string' ? listingOf.get(productId) : undefined
     if (!listingId) continue
     const options = readOptions(value)
     if (options.length === 0) continue
-    const facts = out.get(listingId) ?? { services: new Set<string>(), leadDays: [] }
-    for (const option of options) {
-      facts.services.add(option.label)
-      facts.leadDays.push(option.days)
-    }
-    out.set(listingId, facts)
+    addOptions(out, listingId, options)
+    addOptions(result.products, productId as string, options)
   }
-  for (const facts of out.values()) facts.leadDays = [...new Set(facts.leadDays)].sort((a, b) => a - b)
-  return out
+  for (const map of [result.listings, result.products]) {
+    for (const facts of map.values()) facts.leadDays = [...new Set(facts.leadDays)].sort((a, b) => a - b)
+  }
+  return result
 }
 
-let slot: { promise: Promise<Map<string, FltDeliveryFacts>>; at: number } | null = null
+let slot: { promise: Promise<FltDeliveryCatalogue>; at: number } | null = null
 // The last answer that actually arrived, served while a refresh is in flight.
-let lastGood: Map<string, FltDeliveryFacts> | null = null
+let lastGood: FltDeliveryCatalogue | null = null
 
 /** Delivery facts for every active listing, keyed by listing id. Listings no
  *  service reaches are absent. Held for ten minutes, then refreshed behind the
  *  previous answer; a failed read clears the memo so the next request tries
  *  again rather than serving the failure. */
-export function getDeliveryFacts(): Promise<Map<string, FltDeliveryFacts>> {
+export function getDeliveryFacts(): Promise<FltDeliveryCatalogue> {
   const now = Date.now()
   if (slot && now - slot.at < TTL_MS) return slot.promise
   const promise = loadCatalogue()
@@ -122,4 +145,65 @@ export function getDeliveryFacts(): Promise<Map<string, FltDeliveryFacts>> {
     () => { if (slot === mine) slot = null },
   )
   return lastGood ? Promise.resolve(lastGood) : promise
+}
+
+// ---------------------------------------------------------------------------
+// The shop's dispatch calendar, for turning a lead-time count into a date.
+//
+// Read from `shop.delivery-calendar` (Advanced Shipping): the cut-off, the zone
+// and a list of upcoming working days with bank holidays and the shop's own
+// closures already taken out. The date itself is worked out in the shopper's
+// browser off this list (lib/lead-date.ts), so a cached page never shows
+// yesterday's promise. Absent provider = no calendar = the panel keeps the
+// filter's own "within N working days" label.
+// ---------------------------------------------------------------------------
+
+const CALENDAR_POINT = 'shop.delivery-calendar'
+const DAY = /^\d{4}-\d{2}-\d{2}$/
+
+function readCalendar(value: unknown): FltDeliveryCalendar | null {
+  if (typeof value !== 'object' || value === null) return null
+  const row = value as Record<string, unknown>
+  const timezone = typeof row.timezone === 'string' ? row.timezone : ''
+  const cutoffTime = typeof row.cutoffTime === 'string' && /^\d{2}:\d{2}$/.test(row.cutoffTime) ? row.cutoffTime : ''
+  const days = Array.isArray(row.workingDays) ? row.workingDays.filter((d): d is string => typeof d === 'string' && DAY.test(d)) : []
+  if (!timezone || !cutoffTime || days.length === 0) return null
+  try {
+    // A zone the runtime does not know would throw in the browser instead.
+    new Intl.DateTimeFormat('en-GB', { timeZone: timezone })
+  } catch {
+    return null
+  }
+  return { timezone, cutoffTime, workingDays: days }
+}
+
+let calendarSlot: { promise: Promise<FltDeliveryCalendar | null>; at: number } | null = null
+let lastCalendar: FltDeliveryCalendar | null = null
+
+/** The dispatch calendar, or null where no module publishes one. Held for ten
+ *  minutes and refreshed behind the previous answer, like the facts above. */
+export function getDeliveryCalendar(): Promise<FltDeliveryCalendar | null> {
+  const now = Date.now()
+  if (calendarSlot && now - calendarSlot.at < TTL_MS) return calendarSlot.promise
+  const promise = (async () => {
+    const { modulePublicExtensionPointComponents } = await import('@/lib/modules/extension-points.public')
+    const registered: Record<string, unknown> = modulePublicExtensionPointComponents[CALENDAR_POINT] ?? {}
+    const provider = Object.values(registered).find((entry): entry is () => Promise<unknown> => typeof entry === 'function')
+    return provider ? readCalendar(await provider()) : null
+  })()
+  const mine = { promise, at: now }
+  calendarSlot = mine
+  promise.then(
+    (calendar) => { lastCalendar = calendar },
+    () => { if (calendarSlot === mine) calendarSlot = null },
+  )
+  return lastCalendar ? Promise.resolve(lastCalendar) : promise
+}
+
+/** The calendar a grid hands its panel, and the moment it was handed over -
+ *  only where a lead-time filter is on offer. Both undefined otherwise. */
+export async function calendarForOffer(offered: { filters: { leadDays?: number }[] }[]): Promise<{ deliveryCalendar?: FltDeliveryCalendar; renderedAt?: number }> {
+  if (!offered.some((g) => g.filters.some((f) => f.leadDays !== undefined))) return {}
+  const deliveryCalendar = await getDeliveryCalendar()
+  return deliveryCalendar ? { deliveryCalendar, renderedAt: Date.now() } : {}
 }

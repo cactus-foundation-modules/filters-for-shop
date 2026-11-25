@@ -114,7 +114,7 @@ async function listAttributeValues(): Promise<FltCatalogueOption[]> {
 // them; a lead time by the listings that can arrive WITHIN it, which is exactly
 // what a filter on it would match (lib/grid-build.ts deliveryRuleMatches).
 async function listDeliveryValues(): Promise<FltCatalogueOption[]> {
-  const facts = await getDeliveryFacts()
+  const facts = (await getDeliveryFacts()).listings
   if (facts.size === 0) return []
   const services = new Map<string, number>()
   const quickest: number[] = []

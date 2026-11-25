@@ -13,12 +13,15 @@ import { withOptionParams } from '@/modules/filters-for-shop/lib/option-param'
 import type { FltSwap } from '@/modules/filters-for-shop/lib/db/matching'
 import { describeRange, formatRangeParam, isRangeActive, NO_PRICE_RANGE, normaliseRange, parseRangeParam, priceInRange, rangeFromBand, sameRange, sliderScale, type FltPriceRange } from '@/modules/filters-for-shop/lib/price-range'
 import { PriceRangeControl } from '@/modules/filters-for-shop/components/public/PriceRangeControl'
+import { leadDateLabel, type FltDeliveryCalendar } from '@/modules/filters-for-shop/lib/lead-date'
 
 // The serialisable shape the RSC half hands over: no rules, no positions - just
 // what the storefront needs to draw and to write the query string.
 // `band` only on a RANGE group's filters: the price band a filter page can
 // arrive with ticked, which opens the slider on those bounds instead.
-export type FltPublicFilter = { id: string; label: string; slug: string; swatch: string | null; band?: [min: number | null, max: number | null] }
+// `leadDays` only on a filter that stands for delivery lead times alone: the
+// working-day count the panel turns into a date off `deliveryCalendar`.
+export type FltPublicFilter = { id: string; label: string; slug: string; swatch: string | null; band?: [min: number | null, max: number | null]; leadDays?: number }
 export type FltPublicGroup = { id: string; name: string; slug: string; controlType: FltControlType; filters: FltPublicFilter[] }
 
 // Which filters each enabled variation resolves, interned. Filter ids appear
@@ -75,6 +78,14 @@ export type FltGridData = {
   // A starting point, not a lock: the controls are the same controls and the
   // shopper can clear any of it.
   preselect?: string[]
+  // The shop's dispatch calendar (lib/lead-date.ts), present when a lead-time
+  // filter is offered and a module publishes one. With it, "Within 6 working
+  // days" reads "By Tuesday the 1st of December", worked out in the browser so
+  // a cached page never shows yesterday's date.
+  deliveryCalendar?: FltDeliveryCalendar
+  // When the server built this, ms. The first render dates from it so server
+  // and browser draw the same words; the browser's own clock takes over after.
+  renderedAt?: number
 }
 
 export type FilterShellProps = {
@@ -252,7 +263,7 @@ export function FilterShell({ packedGrid, showSort, defaultSort = '', columns, p
   // shape changed. Keyed on the packed object itself, which is only ever a new
   // object when the server sends a new render - a tick or a page turn never
   // unfolds it again.
-  const { groups, matrix, variations = EMPTY_VARIATIONS, swaps: swapIndex = EMPTY_SWAP_INDEX, sortKeys, serverOrder, renderedIds, preselect } = useMemo(() => unpackFilterGrid(packedGrid), [packedGrid])
+  const { groups, matrix, variations = EMPTY_VARIATIONS, swaps: swapIndex = EMPTY_SWAP_INDEX, sortKeys, serverOrder, renderedIds, preselect, deliveryCalendar, renderedAt } = useMemo(() => unpackFilterGrid(packedGrid), [packedGrid])
   const gridRef = useRef<HTMLDivElement>(null)
   const resultsRef = useRef<HTMLDivElement>(null)
   const drawerRef = useRef<HTMLDivElement>(null)
@@ -265,6 +276,23 @@ export function FilterShell({ packedGrid, showSort, defaultSort = '', columns, p
   const serverOrderRef = useRef<string[] | null>(serverOrder ? [...serverOrder] : null)
   const hasSortedRef = useRef(false)
   const [selected, setSelected] = useState<FltSelection>(new Map())
+  // The clock lead-time dates are counted from: the server's moment for the
+  // first paint (so the markup hydrates), then the browser's, refreshed every
+  // few minutes so a page left open across the cut-off moves its dates on.
+  const [clock, setClock] = useState(() => renderedAt ?? 0)
+  useEffect(() => {
+    if (!deliveryCalendar) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the browser's clock is only readable post-mount; reading it during render would mismatch the server's markup
+    setClock(Date.now())
+    const timer = setInterval(() => setClock(Date.now()), 5 * 60_000)
+    return () => clearInterval(timer)
+  }, [deliveryCalendar])
+  // What a filter is called on screen: its date where it stands for a lead
+  // time and the calendar can say one, else its own label.
+  const labelOf = useCallback(
+    (filter: { label: string; leadDays?: number }) => leadDateLabel(deliveryCalendar, filter.leadDays, new Date(clock)) ?? filter.label,
+    [deliveryCalendar, clock],
+  )
   // The price slider's chosen range, beside the ticks rather than inside them:
   // a range is two figures, not a set of filter ids. NO_PRICE_RANGE is "any".
   const [priceRange, setPriceRange] = useState<FltPriceRange>(NO_PRICE_RANGE)
@@ -562,11 +590,11 @@ export function FilterShell({ packedGrid, showSort, defaultSort = '', columns, p
       const picked = selected.get(group.id)
       if (!picked || picked.size === 0) continue
       for (const filter of group.filters) {
-        if (picked.has(filter.id)) out.push({ groupId: group.id, groupName: group.name, filterId: filter.id, label: filter.label })
+        if (picked.has(filter.id)) out.push({ groupId: group.id, groupName: group.name, filterId: filter.id, label: labelOf(filter) })
       }
     }
     return out
-  }, [groups, selected])
+  }, [groups, selected, labelOf])
   // The price range as a chip of its own, removable like a tick.
   const rangeChip = rangeGroup && isRangeActive(priceRange) ? { groupName: rangeGroup.name, label: describeRange(priceRange, currencySymbol) } : null
   const clearAll = useCallback(() => {
@@ -1113,7 +1141,7 @@ export function FilterShell({ packedGrid, showSort, defaultSort = '', columns, p
                         <option value="">Any</option>
                         {group.filters.map((filter) => (
                           <option key={filter.id} value={filter.id}>
-                            {filter.label}{showCounts ? ` (${count(filter.id, group.id)})` : ''}
+                            {labelOf(filter)}{showCounts ? ` (${count(filter.id, group.id)})` : ''}
                           </option>
                         ))}
                       </select>
@@ -1129,7 +1157,7 @@ export function FilterShell({ packedGrid, showSort, defaultSort = '', columns, p
                               type="button"
                               className={`flt-image${on ? ' is-on' : ''}${n === 0 && !on ? ' is-dead' : ''}`}
                               aria-pressed={on}
-                              title={showCounts ? `${filter.label} (${n})` : filter.label}
+                              title={showCounts ? `${labelOf(filter)} (${n})` : labelOf(filter)}
                               onClick={() => toggle(group.id, filter.id)}
                             >
                               {picture ? (
@@ -1138,7 +1166,7 @@ export function FilterShell({ packedGrid, showSort, defaultSort = '', columns, p
                               ) : (
                                 <span className="flt-image-pic flt-image-blank" aria-hidden />
                               )}
-                              <span className="flt-image-label">{filter.label}</span>
+                              <span className="flt-image-label">{labelOf(filter)}</span>
                             </button>
                           )
                         })}
@@ -1160,11 +1188,11 @@ export function FilterShell({ packedGrid, showSort, defaultSort = '', columns, p
                               type="button"
                               className={`flt-swatch${on ? ' is-on' : ''}${n === 0 && !on ? ' is-dead' : ''}`}
                               aria-pressed={on}
-                              title={showCounts ? `${filter.label} (${n})` : filter.label}
+                              title={showCounts ? `${labelOf(filter)} (${n})` : labelOf(filter)}
                               onClick={() => toggle(group.id, filter.id)}
                             >
                               <span className="flt-swatch-dot" style={dotStyle} aria-hidden />
-                              <span className="flt-swatch-label">{filter.label}</span>
+                              <span className="flt-swatch-label">{labelOf(filter)}</span>
                             </button>
                           )
                         })}
@@ -1177,7 +1205,7 @@ export function FilterShell({ packedGrid, showSort, defaultSort = '', columns, p
                           return (
                             <label key={filter.id} className={`flt-tick${n === 0 && !on ? ' is-dead' : ''}`}>
                               <input type="checkbox" checked={on} onChange={() => toggle(group.id, filter.id)} />
-                              <span>{filter.label}</span>
+                              <span>{labelOf(filter)}</span>
                               {showCounts && <span className="flt-count">{n}</span>}
                             </label>
                           )

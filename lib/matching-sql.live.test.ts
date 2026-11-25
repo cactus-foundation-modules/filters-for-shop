@@ -319,6 +319,38 @@ suite('filters-for-shop matching SQL, against a real Postgres', () => {
     ])
   })
 
+  // With a delivery filter about, nothing folds: two variations with the same
+  // option answers can still differ in lead time, and each carries its child
+  // product so lib/grid-build.ts can add its own delivery filters.
+  it('keeps every variation, with its child product, once a delivery filter exists', async () => {
+    const withDelivery = [
+      ...groups,
+      {
+        id: 'delivery-group', name: 'Delivery lead time', slug: 'delivery-lead-time', controlType: 'CHECKBOX' as const, kind: 'VALUES' as const, position: 9,
+        filters: [{
+          id: 'delivery-filter', groupId: 'delivery-group', label: 'Within 3 working days', slug: 'within-3', swatch: null, swatchSmall: null, swatchTiny: null,
+          position: 0, priceMin: null, priceMax: null,
+          rules: [{ id: 'delivery-rule', source: 'DELIVERY' as const, optionName: 'Delivery lead time', valueLabel: '3 working days' }],
+        }],
+      },
+    ]
+    const matches = await db.matching.getProductFilterMatches([deskId], withDelivery)
+    const combos = matches.combos.get(deskId) ?? []
+    expect(combos).toHaveLength(4)
+    expect(combos.every((c) => typeof c.childId === 'string' && c.childId.length > 0)).toBe(true)
+    expect(new Set(combos.map((c) => c.childId)).size).toBe(4)
+    expect(combos.map((c) => [...c.filterIds].sort())).toEqual([
+      [filterId.blue!, filterId.oak!].sort(),
+      [filterId.ash!, filterId.blue!].sort(),
+      [filterId.green!, filterId.oak!].sort(),
+      [filterId.green!, filterId.oak!].sort(),
+    ])
+    // The folded answer, and its cache entry, are untouched.
+    const plain = await db.matching.getProductFilterMatches([deskId], groups)
+    expect(plain.combos.get(deskId)).toHaveLength(3)
+    expect(plain.combos.get(deskId)?.every((c) => c.childId === undefined)).toBe(true)
+  })
+
   it('borrows one variation per filter for the card swap, and names its option', async () => {
     const matches = await db.matching.getProductFilterMatches([deskId], groups)
     const swaps = matches.swaps.get(deskId)
