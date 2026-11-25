@@ -1,12 +1,34 @@
 import type { ShpFaqSet } from '@/modules/shop/lib/faq'
 // Shared types for filters-for-shop. Groups hold filters, filters hold rules;
 // a rule is a (name, label) pair matched against shop-variations option values
-// (source OPTION) or product-attributes values (source ATTRIBUTE). PRICE-kind
-// groups skip rules entirely: their filters carry a price band instead.
+// (source OPTION), product-attributes values (source ATTRIBUTE) or delivery
+// facts (source DELIVERY, see lib/delivery.ts). PRICE-kind groups skip rules
+// entirely: their filters carry a price band instead.
 
-export type FltControlType = 'CHECKBOX' | 'SWATCH' | 'IMAGE' | 'DROPDOWN'
+// RANGE is for PRICE groups only: a two-handled slider with min/max boxes in
+// place of a tick per band (migration 006).
+export type FltControlType = 'CHECKBOX' | 'SWATCH' | 'IMAGE' | 'DROPDOWN' | 'RANGE'
 export type FltGroupKind = 'VALUES' | 'PRICE'
-export type FltRuleSource = 'OPTION' | 'ATTRIBUTE'
+export type FltRuleSource = 'OPTION' | 'ATTRIBUTE' | 'DELIVERY'
+
+// The two names a DELIVERY rule is filed under. The value of a service rule is
+// the service's own label ("Pre-Assembled"); the value of a lead-time rule is a
+// working-day count written for people ("6 working days"), matched as "can
+// arrive within this many" - see deliveryRuleMatches.
+export const FLT_DELIVERY_SERVICE = 'Delivery service'
+export const FLT_DELIVERY_LEAD_TIME = 'Delivery lead time'
+
+/** The working-day count a lead-time rule's value names: its leading whole
+ *  number, or null where it has none. "6 working days" -> 6. */
+export function leadTimeDays(valueLabel: string): number | null {
+  const match = /^\s*(\d+)/.exec(valueLabel)
+  return match ? Number(match[1]) : null
+}
+
+/** How a lead-time value is worded, so the picker and the stored rule agree. */
+export function leadTimeLabel(days: number): string {
+  return `${days} working ${days === 1 ? 'day' : 'days'}`
+}
 
 export type FltRule = {
   id: string

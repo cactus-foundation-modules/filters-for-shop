@@ -9,7 +9,8 @@ import { shopCardCss } from '@/modules/shop/components/puck/parts/card-parts'
 import { listGroups } from '@/modules/filters-for-shop/lib/db/filters'
 import { getSettings } from '@/modules/filters-for-shop/lib/db/settings'
 import { getProductFilterMatches } from '@/modules/filters-for-shop/lib/db/matching'
-import { applyPriceBands, internVariations, offerGroups } from '@/modules/filters-for-shop/lib/grid-build'
+import { applyDeliveryRules, applyPriceBands, internVariations, offerGroups, wantsDeliveryFacts } from '@/modules/filters-for-shop/lib/grid-build'
+import { getDeliveryFacts } from '@/modules/filters-for-shop/lib/delivery'
 import { packSwaps } from '@/modules/filters-for-shop/lib/swap-pack'
 import { packFilterGrid } from '@/modules/filters-for-shop/lib/grid-pack'
 import { renderTaggedCards } from '@/modules/filters-for-shop/lib/tagged-cards'
@@ -87,6 +88,7 @@ export async function renderSearchFilterGrid(
     }
   }
   applyPriceBands(matrix, groups, priceOf)
+  if (wantsDeliveryFacts(groups)) applyDeliveryRules(matrix, groups, ids, await getDeliveryFacts())
 
   const offered = offerGroups(groups, matrix, settings.hideEmptyFilters, new Set<string>())
   // Nothing here can be cut by anything: hand the caller back its plain cards
@@ -116,6 +118,7 @@ export async function renderSearchFilterGrid(
         showCounts
         swapImages={settings.swapCardImages}
         preselectOnClick={settings.preselectOnClick}
+        currencySymbol={config.currencySymbol}
         tabletBp={bp.tabletBp}
         paginate="more"
         pageSize={pageSize}

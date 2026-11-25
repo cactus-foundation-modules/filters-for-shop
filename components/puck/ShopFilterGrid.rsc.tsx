@@ -17,7 +17,8 @@ import { getProductFilterMatches } from '@/modules/filters-for-shop/lib/db/match
 import { listFilterShelf, type FltShelfScope } from '@/modules/filters-for-shop/lib/shelf'
 import { FLT_SHELF_CEILING } from '@/modules/filters-for-shop/lib/shelf-plan'
 import { CATEGORY_GROUP_ID, CATEGORY_GROUP_SLUG, CATEGORY_GROUP_NAME, buildBranchIndex, productBranchFilterIds, categoryFilterId } from '@/modules/filters-for-shop/lib/category-filter'
-import { applyPriceBands, internVariations, offerGroups } from '@/modules/filters-for-shop/lib/grid-build'
+import { applyDeliveryRules, applyPriceBands, internVariations, offerGroups, wantsDeliveryFacts } from '@/modules/filters-for-shop/lib/grid-build'
+import { getDeliveryFacts } from '@/modules/filters-for-shop/lib/delivery'
 import { sortProductIds, sortValueFromParam, type FltSortKey } from '@/modules/filters-for-shop/lib/sort'
 import { FilterShell, type FltPublicGroup } from '@/modules/filters-for-shop/components/public/FilterShell'
 import { shopFilterCss } from '@/modules/filters-for-shop/components/public/filter-css'
@@ -150,11 +151,13 @@ async function ShopFilterGridRscBody(props: ShopFilterGridProps) {
   // without them the cards here carry no contributed variation photos, so the
   // carousel island never mounts with anything the filter's sourceId constraint
   // could match - the very photos the swap borrows.
-  const [{ matrix, combos, swaps }, fromPrices, allCategories, categoryIdsByProduct] = await Promise.all([
+  const [{ matrix, combos, swaps }, fromPrices, allCategories, categoryIdsByProduct, deliveryFacts] = await Promise.all([
     getProductFilterMatches(productIds, groups),
     resolveCardFromPrices(productIds),
     wantCategoryFilter ? listCategories() : Promise.resolve([]),
     wantCategoryFilter ? getProductCategoryIdsForProducts(productIds) : Promise.resolve(new Map<string, string[]>()),
+    // Only paid for when a filter actually asks a delivery question.
+    wantsDeliveryFacts(groups) ? getDeliveryFacts() : Promise.resolve(new Map()),
   ])
 
   const { tagById, tagsById } = buildTagMaps(tags)
@@ -180,6 +183,8 @@ async function ShopFilterGridRscBody(props: ShopFilterGridProps) {
   // PRICE groups, matched against the same figure the card prints - see
   // lib/grid-build.ts.
   applyPriceBands(matrix, groups, priceOf)
+  // DELIVERY rules, listing-wide like the bands - see lib/delivery.ts.
+  applyDeliveryRules(matrix, groups, productIds, deliveryFacts)
 
   // Each product earns a filter id per sub-category branch it is filed on, so
   // the Category group behaves exactly like an admin-defined one - facet
@@ -354,6 +359,7 @@ async function ShopFilterGridRscBody(props: ShopFilterGridProps) {
         showCounts={props.showCounts !== 'no'}
         swapImages={settings.swapCardImages}
         preselectOnClick={settings.preselectOnClick}
+        currencySymbol={config.currencySymbol}
         tabletBp={bp.tabletBp}
         paginate={paginate}
         pageSize={pageSize}

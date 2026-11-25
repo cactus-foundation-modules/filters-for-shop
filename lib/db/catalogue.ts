@@ -1,7 +1,8 @@
 import { prisma } from '@/lib/db/prisma'
 import { hasVariationsTables } from '@/modules/filters-for-shop/lib/variations-probe'
 import { hasAttributeTables } from '@/modules/filters-for-shop/lib/attributes-probe'
-import type { FltCatalogueOption } from '@/modules/filters-for-shop/lib/types'
+import { getDeliveryFacts } from '@/modules/filters-for-shop/lib/delivery'
+import { FLT_DELIVERY_LEAD_TIME, FLT_DELIVERY_SERVICE, leadTimeLabel, type FltCatalogueOption } from '@/modules/filters-for-shop/lib/types'
 
 // Free-text specs (weights, exact dimensions) would flood the picker with
 // thousands of one-off labels nobody would ever build a filter from. An
@@ -52,8 +53,8 @@ export function invalidateCatalogueValues(): void {
 }
 
 async function buildCatalogueValues(): Promise<FltCatalogueOption[]> {
-  const [options, attributes] = await Promise.all([listOptionValues(), listAttributeValues()])
-  return [...options, ...attributes]
+  const [options, attributes, delivery] = await Promise.all([listOptionValues(), listAttributeValues(), listDeliveryValues()])
+  return [...options, ...attributes, ...delivery]
 }
 
 async function listOptionValues(): Promise<FltCatalogueOption[]> {
@@ -106,6 +107,43 @@ async function listAttributeValues(): Promise<FltCatalogueOption[]> {
       ORDER BY a."name", av."label"
     `
   return stitch(await childCount, 'ATTRIBUTE')
+}
+
+// The delivery half of the menu, from whichever module publishes delivery
+// timing (none = nothing offered). Services are counted by the listings offered
+// them; a lead time by the listings that can arrive WITHIN it, which is exactly
+// what a filter on it would match (lib/grid-build.ts deliveryRuleMatches).
+async function listDeliveryValues(): Promise<FltCatalogueOption[]> {
+  const facts = await getDeliveryFacts()
+  if (facts.size === 0) return []
+  const services = new Map<string, number>()
+  const quickest: number[] = []
+  const everyLead = new Set<number>()
+  for (const listing of facts.values()) {
+    for (const label of listing.services) services.set(label, (services.get(label) ?? 0) + 1)
+    if (listing.leadDays[0] !== undefined) quickest.push(listing.leadDays[0])
+    for (const days of listing.leadDays) everyLead.add(days)
+  }
+  const out: FltCatalogueOption[] = []
+  if (services.size > 0) {
+    out.push({
+      source: 'DELIVERY',
+      optionName: FLT_DELIVERY_SERVICE,
+      values: [...services.entries()]
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([label, productCount]) => ({ label, productCount, swatch: null })),
+    })
+  }
+  if (everyLead.size > 0) {
+    out.push({
+      source: 'DELIVERY',
+      optionName: FLT_DELIVERY_LEAD_TIME,
+      values: [...everyLead]
+        .sort((a, b) => a - b)
+        .map((days) => ({ label: leadTimeLabel(days), productCount: quickest.filter((q) => q <= days).length, swatch: null })),
+    })
+  }
+  return out
 }
 
 function stitch(rows: Record<string, unknown>[], source: 'OPTION' | 'ATTRIBUTE'): FltCatalogueOption[] {

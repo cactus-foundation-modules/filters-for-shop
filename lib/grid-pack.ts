@@ -129,6 +129,10 @@ export type FltPackedGrid = {
   filterLabels: string[]
   filterSlugs: string[]
   filterSwatches: (string | null)[]
+  /** Lined up with the groups' stretch of the filter table: a RANGE group's
+   *  price bands, null on every other filter. Absent where no group is a
+   *  slider, which is every grid that came before. */
+  filterBands?: ([min: number | null, max: number | null] | null)[]
   preselect?: number[]
   /** Lined up with the product table: filter table positions in the order the
    *  matrix row held them, or null where the matrix holds no row for it. */
@@ -209,6 +213,7 @@ export function packFilterGrid(data: FltGridData): FltPackedGrid {
   const filterLabels: string[] = []
   const filterSlugs: string[] = []
   const filterSwatches: (string | null)[] = []
+  const filterBands: ([number | null, number | null] | null)[] = []
   for (const group of data.groups) {
     groups.push([group.id, group.name, group.slug, group.controlType, group.filters.length])
     for (const filter of group.filters) {
@@ -216,6 +221,7 @@ export function packFilterGrid(data: FltGridData): FltPackedGrid {
       filterLabels.push(filter.label)
       filterSlugs.push(filter.slug)
       filterSwatches.push(filter.swatch)
+      filterBands.push(filter.band ?? null)
     }
   }
   const filterPosition = (id: string) => filters.intern(id)
@@ -282,6 +288,7 @@ export function packFilterGrid(data: FltGridData): FltPackedGrid {
     packed.serverOrder = isTablePrefix ? data.serverOrder.length : data.serverOrder.map((id) => products.intern(id))
   }
   if (data.renderedIds) packed.renderedIds = data.renderedIds.map((id) => products.intern(id))
+  if (filterBands.some((band) => band !== null)) packed.filterBands = filterBands
   if (data.preselect) packed.preselect = data.preselect.map(filterPosition)
   if (variations) packed.variations = variations
   // Last, because everything above may have added a filter the groups do not offer.
@@ -349,12 +356,16 @@ export function unpackFilterGrid(packed: FltPackedGrid): FltGridData {
       name,
       slug,
       controlType,
-      filters: Array.from({ length: filterCount }, (_, offset) => ({
-        id: filterAt(start + offset),
-        label: packed.filterLabels[start + offset] ?? '',
-        slug: packed.filterSlugs[start + offset] ?? '',
-        swatch: packed.filterSwatches[start + offset] ?? null,
-      })),
+      filters: Array.from({ length: filterCount }, (_, offset) => {
+        const band = packed.filterBands?.[start + offset] ?? null
+        return {
+          id: filterAt(start + offset),
+          label: packed.filterLabels[start + offset] ?? '',
+          slug: packed.filterSlugs[start + offset] ?? '',
+          swatch: packed.filterSwatches[start + offset] ?? null,
+          ...(band ? { band } : {}),
+        }
+      }),
     }
   })
 

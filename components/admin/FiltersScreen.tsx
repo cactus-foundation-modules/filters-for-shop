@@ -12,6 +12,7 @@ const CONTROL_LABELS: Record<FltControlType, string> = {
   CHECKBOX: 'Tick list',
   IMAGE: 'Picture swatches',
   DROPDOWN: 'Dropdown',
+  RANGE: 'Range slider',
 }
 
 const card: React.CSSProperties = {
@@ -211,7 +212,7 @@ export function FiltersScreen() {
               onChange={(e) => setNewGroupControl(e.target.value as FltControlType)}
               aria-label="How shoppers pick from it"
             >
-              {(Object.keys(CONTROL_LABELS) as FltControlType[]).map((k) => (
+              {(Object.keys(CONTROL_LABELS) as FltControlType[]).filter((k) => k !== 'RANGE').map((k) => (
                 <option key={k} value={k}>{CONTROL_LABELS[k]}</option>
               ))}
             </select>
@@ -340,9 +341,12 @@ function GroupCard({ group, catalogue, busy, send, canMoveUp, canMoveDown, onMov
             aria-label={`How shoppers pick from ${group.name}`}
             disabled={busy}
           >
-            {(Object.keys(CONTROL_LABELS) as FltControlType[]).map((k) => (
-              <option key={k} value={k}>{CONTROL_LABELS[k]}</option>
-            ))}
+            {/* A slider slides over prices, so it is only offered on a price group. */}
+            {(Object.keys(CONTROL_LABELS) as FltControlType[])
+              .filter((k) => k !== 'RANGE' || group.kind === 'PRICE')
+              .map((k) => (
+                <option key={k} value={k}>{CONTROL_LABELS[k]}</option>
+              ))}
           </select>
           <button className="btn btn-secondary btn-sm" disabled={busy || !canMoveUp} onClick={() => onMove(-1)} aria-label={`Move ${group.name} up`}>↑</button>
           <button className="btn btn-secondary btn-sm" disabled={busy || !canMoveDown} onClick={() => onMove(1)} aria-label={`Move ${group.name} down`}>↓</button>

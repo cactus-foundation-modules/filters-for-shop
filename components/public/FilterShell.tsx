@@ -11,10 +11,14 @@ import { EMPTY_SWAP_INDEX, unpackSwaps, type FltSwapIndex } from '@/modules/filt
 import { unpackFilterGrid, type FltPackedGrid } from '@/modules/filters-for-shop/lib/grid-pack'
 import { withOptionParams } from '@/modules/filters-for-shop/lib/option-param'
 import type { FltSwap } from '@/modules/filters-for-shop/lib/db/matching'
+import { describeRange, formatRangeParam, isRangeActive, NO_PRICE_RANGE, normaliseRange, parseRangeParam, priceInRange, rangeFromBand, sameRange, sliderScale, type FltPriceRange } from '@/modules/filters-for-shop/lib/price-range'
+import { PriceRangeControl } from '@/modules/filters-for-shop/components/public/PriceRangeControl'
 
 // The serialisable shape the RSC half hands over: no rules, no positions - just
 // what the storefront needs to draw and to write the query string.
-export type FltPublicFilter = { id: string; label: string; slug: string; swatch: string | null }
+// `band` only on a RANGE group's filters: the price band a filter page can
+// arrive with ticked, which opens the slider on those bounds instead.
+export type FltPublicFilter = { id: string; label: string; slug: string; swatch: string | null; band?: [min: number | null, max: number | null] }
 export type FltPublicGroup = { id: string; name: string; slug: string; controlType: FltControlType; filters: FltPublicFilter[] }
 
 // Which filters each enabled variation resolves, interned. Filter ids appear
@@ -124,6 +128,8 @@ export type FilterShellProps = {
   // downward from it, so following a link to page three lands on products 25-36
   // rather than quietly starting over at the top.
   page?: number
+  // The shop's currency symbol, for the price slider's boxes and its chip.
+  currencySymbol?: string
 }
 
 // A tick list longer than this collapses behind "Show all" - long enough that
@@ -240,7 +246,7 @@ function dressCard(el: HTMLElement, swapList: FltSwap[], swapImages: boolean, pr
 // suppressed at the call site.
 const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect
 
-export function FilterShell({ packedGrid, showSort, defaultSort = '', columns, position, showCounts, swapImages, preselectOnClick, tabletBp, children, paginate = 'none', pageSize = 24, moreLabel, loadCards, page: serverPage }: FilterShellProps) {
+export function FilterShell({ packedGrid, showSort, defaultSort = '', columns, position, showCounts, swapImages, preselectOnClick, tabletBp, children, paginate = 'none', pageSize = 24, moreLabel, loadCards, page: serverPage, currencySymbol = '£' }: FilterShellProps) {
   // Unfolded once, into exactly the shapes everything below has always worked
   // on, so the filter maths, the sort and the card fetch cannot tell the wire
   // shape changed. Keyed on the packed object itself, which is only ever a new
@@ -259,6 +265,9 @@ export function FilterShell({ packedGrid, showSort, defaultSort = '', columns, p
   const serverOrderRef = useRef<string[] | null>(serverOrder ? [...serverOrder] : null)
   const hasSortedRef = useRef(false)
   const [selected, setSelected] = useState<FltSelection>(new Map())
+  // The price slider's chosen range, beside the ticks rather than inside them:
+  // a range is two figures, not a set of filter ids. NO_PRICE_RANGE is "any".
+  const [priceRange, setPriceRange] = useState<FltPriceRange>(NO_PRICE_RANGE)
   const [sort, setSort] = useState<FltSortValue>(defaultSort)
   const [visibleCount, setVisibleCount] = useState<number | null>(null)
   // How many of the matching cards are on screen. 'more' grows this window;
@@ -277,7 +286,7 @@ export function FilterShell({ packedGrid, showSort, defaultSort = '', columns, p
   // state that has to follow a change in inputs. An effect would paint the wrong
   // page first and correct it after, which is the flicker this avoids, and would
   // trip react-hooks/set-state-in-effect for exactly that reason.
-  const pageResetKey = `${sort}|${[...selected.entries()].map(([g, f]) => `${g}:${[...f].sort().join(',')}`).sort().join('|')}|${pageSize}`
+  const pageResetKey = `${sort}|${[...selected.entries()].map(([g, f]) => `${g}:${[...f].sort().join(',')}`).sort().join('|')}|${formatRangeParam(priceRange)}|${pageSize}`
   const [lastResetKey, setLastResetKey] = useState(pageResetKey)
   if (pageResetKey !== lastResetKey) {
     setLastResetKey(pageResetKey)
@@ -310,13 +319,33 @@ export function FilterShell({ packedGrid, showSort, defaultSort = '', columns, p
   const [urlRead, setUrlRead] = useState(false)
 
   const sortParam = useMemo(() => sortParamFor(groups), [groups])
+  // The one price slider, if the owner made the Price group one. Its band
+  // filters are never ticks: they only say where a filter page opens the slider,
+  // so every tick rule below (preselect, the query string) works on the other
+  // groups alone.
+  const rangeGroup = useMemo(() => groups.find((g) => g.controlType === 'RANGE') ?? null, [groups])
+  const tickGroups = useMemo(() => groups.filter((g) => g.controlType !== 'RANGE'), [groups])
+  // Bounded by the prices actually on this shelf - the same figures the cards
+  // print and the sort orders on. Null when there is nowhere to slide.
+  const priceScale = useMemo(
+    () => (rangeGroup ? sliderScale(Object.values(sortKeys).map((key) => key.price)) : null),
+    [rangeGroup, sortKeys],
+  )
   // `preselect` arrives as a fresh array on every server render, so the split is
   // keyed on its contents rather than its identity - otherwise the read effect
   // below would re-run on every render and stamp the starting selection back
   // over whatever the shopper had just ticked.
   const preselectKey = (preselect ?? []).join(',')
   // eslint-disable-next-line react-hooks/exhaustive-deps -- preselectKey is the stable stand-in for `preselect`; see above
-  const preselected = useMemo(() => preselectByGroup(groups, preselect ?? []), [groups, preselectKey])
+  const preselected = useMemo(() => preselectByGroup(tickGroups, preselect ?? []), [tickGroups, preselectKey])
+  // A filter page built on a price band ("Chairs Under £200") opens the slider
+  // on that band.
+  const presetRange = useMemo<FltPriceRange>(() => {
+    const wanted = new Set(preselect ?? [])
+    const band = rangeGroup?.filters.find((f) => wanted.has(f.id))?.band
+    return normaliseRange(rangeFromBand(band), priceScale)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- preselectKey is the stable stand-in for `preselect`; see above
+  }, [rangeGroup, priceScale, preselectKey])
 
   // Read the URL only after mount: the cards are server-rendered and must not
   // depend on the query string, or the markup would mismatch on hydration.
@@ -330,7 +359,15 @@ export function FilterShell({ packedGrid, showSort, defaultSort = '', columns, p
   useIsomorphicLayoutEffect(() => {
     // Seeded here rather than during render: the URL is only readable post-mount,
     // and seeding from it during render would mismatch the server-rendered cards.
-    setSelected(selectionFromParams(groups, new URLSearchParams(window.location.search), preselected))
+    const search = new URLSearchParams(window.location.search)
+    setSelected(selectionFromParams(tickGroups, search, preselected))
+    // Same three states as a tick group: no parameter is the page's own start,
+    // an empty one is "cleared", anything else is the shopper's range.
+    if (rangeGroup) {
+      const raw = search.get(rangeGroup.slug)
+      const asked = raw === null ? presetRange : parseRangeParam(raw) ?? NO_PRICE_RANGE
+      setPriceRange(normaliseRange(asked, priceScale))
+    }
     // A missing parameter asks for nothing, and so does one naming an order this
     // dropdown does not offer - the dropdown must never sit in an order the
     // shopper cannot see it is in. Either way the grid stays on its starting
@@ -339,7 +376,7 @@ export function FilterShell({ packedGrid, showSort, defaultSort = '', columns, p
     if (asked !== null) setSort(asked)
     // Releases the URL mirror below, which must not run before this read.
     setUrlRead(true)
-  }, [groups, sortParam, preselected])
+  }, [tickGroups, rangeGroup, presetRange, priceScale, sortParam, preselected])
 
   useEffect(() => {
     const mq = window.matchMedia(`(max-width: ${tabletBp})`)
@@ -410,9 +447,21 @@ export function FilterShell({ packedGrid, showSort, defaultSort = '', columns, p
   // per mount, into the product -> filter -> swap lookup the dressing pass below
   // has always done.
   const swaps = useMemo(() => unpackSwaps(swapIndex), [swapIndex])
+  // Whether a product's printed price sits inside the slider's range. Always
+  // true with no slider or no range, so every other grid is untouched.
+  const pricePasses = useCallback(
+    (productId: string) => priceInRange(sortKeys[productId]?.price, priceRange),
+    [sortKeys, priceRange],
+  )
   const matrixEntries = useMemo<FltMatrixEntry[]>(
     () => Object.entries(matrix).map(([productId, filterIds]) => [productId, filterIds, combosByProduct.get(productId)]),
     [matrix, combosByProduct],
+  )
+  // What the tick counts are worked out over: the products the price range has
+  // left, so a count never advertises a product the slider has already hidden.
+  const countedEntries = useMemo(
+    () => (isRangeActive(priceRange) ? matrixEntries.filter(([productId]) => pricePasses(productId)) : matrixEntries),
+    [matrixEntries, priceRange, pricePasses],
   )
   const orderedGroups = useMemo(
     () => groups.map((g) => ({ id: g.id, filterIds: g.filters.map((f) => f.id) })),
@@ -433,8 +482,8 @@ export function FilterShell({ packedGrid, showSort, defaultSort = '', columns, p
   )
   const orderedIds = useMemo(() => sortProductIds(allIds, sortKeys, sort), [allIds, sortKeys, sort])
   const matchingIds = useMemo(
-    () => orderedIds.filter((id) => matchesSelection(matrix[id] ?? [], selected, combosByProduct.get(id))),
-    [orderedIds, matrix, selected, combosByProduct],
+    () => orderedIds.filter((id) => pricePasses(id) && matchesSelection(matrix[id] ?? [], selected, combosByProduct.get(id))),
+    [orderedIds, matrix, selected, combosByProduct, pricePasses],
   )
   // The window the pager is currently showing, in ids. 'more' and 'scroll' grow
   // it from the top; 'pages' slides it; 'none' is the whole matching set.
@@ -518,6 +567,12 @@ export function FilterShell({ packedGrid, showSort, defaultSort = '', columns, p
     }
     return out
   }, [groups, selected])
+  // The price range as a chip of its own, removable like a tick.
+  const rangeChip = rangeGroup && isRangeActive(priceRange) ? { groupName: rangeGroup.name, label: describeRange(priceRange, currencySymbol) } : null
+  const clearAll = useCallback(() => {
+    setSelected(new Map())
+    setPriceRange(NO_PRICE_RANGE)
+  }, [])
 
   // Show/hide and re-dress the server-rendered cards in place, then mirror the
   // selection into the URL so a filtered view can be shared or reached with the
@@ -528,7 +583,7 @@ export function FilterShell({ packedGrid, showSort, defaultSort = '', columns, p
     for (const el of root.querySelectorAll<HTMLElement>('[data-flt-product]')) {
       const productId = el.dataset.fltProduct ?? ''
       const matched = matrix[productId] ?? []
-      const ok = matchesSelection(matched, selected, combosByProduct.get(productId))
+      const ok = pricePasses(productId) && matchesSelection(matched, selected, combosByProduct.get(productId))
       el.style.display = ok ? '' : 'none'
       el.toggleAttribute('data-flt-hidden', !ok)
       const swapFilterIds = ok ? pickSwapFilters(matched, selected, orderedGroups) : []
@@ -554,7 +609,16 @@ export function FilterShell({ packedGrid, showSort, defaultSort = '', columns, p
     // Which groups get a parameter, which get an empty one and which are left
     // out entirely is a rule of its own - see lib/preselect.ts.
     const params = new URLSearchParams(window.location.search)
-    applySelectionToParams(groups, selected, preselected, params)
+    applySelectionToParams(tickGroups, selected, preselected, params)
+    if (rangeGroup) {
+      params.delete(rangeGroup.slug)
+      // Left out while it is still where the page started it; an empty value
+      // once a page's own starting band has been cleared, so a refresh does not
+      // put it back.
+      if (!sameRange(priceRange, presetRange)) {
+        params.set(rangeGroup.slug, isRangeActive(priceRange) ? formatRangeParam(priceRange) : '')
+      }
+    }
     // One writer for the whole query string: the sort rides along with the
     // ticks so a shared link carries both, and the shop's own order leaves no
     // trace behind at all.
@@ -566,7 +630,7 @@ export function FilterShell({ packedGrid, showSort, defaultSort = '', columns, p
     window.history.replaceState(null, '', query ? `?${query}` : window.location.pathname)
     // extraCards: a batch that has just arrived is a set of cards nothing has
     // shown, hidden or dressed yet.
-  }, [selected, matrix, combosByProduct, groups, orderedGroups, swaps, swapImages, preselectOnClick, sort, sortParam, defaultSort, urlRead, preselected, matchingIds, extraCards])
+  }, [selected, matrix, combosByProduct, tickGroups, rangeGroup, priceRange, presetRange, pricePasses, orderedGroups, swaps, swapImages, preselectOnClick, sort, sortParam, defaultSort, urlRead, preselected, matchingIds, extraCards])
 
   // Re-order the server-rendered cards in place for the chosen sort. Real DOM
   // moves, not CSS `order`: the cards carry links and carousel buttons, and a
@@ -704,9 +768,11 @@ export function FilterShell({ packedGrid, showSort, defaultSort = '', columns, p
     }
   }, [])
 
-  const activeCount = [...selected.values()].reduce((n, s) => n + s.size, 0)
+  const activeCount = [...selected.values()].reduce((n, s) => n + s.size, 0) + (rangeChip ? 1 : 0)
   const totalCount = matrixEntries.length || null
-  const shownGroups = groups.filter((g) => g.filters.length > 0)
+  // A slider shows whenever the shelf's prices give it room, bands or none; a
+  // tick group needs something to tick.
+  const shownGroups = groups.filter((g) => (g.controlType === 'RANGE' ? priceScale !== null : g.filters.length > 0))
 
   // How many cards the filters have left, which is what the pager pages over.
   // Falls back to the whole set before the first filter pass has run.
@@ -887,7 +953,7 @@ export function FilterShell({ packedGrid, showSort, defaultSort = '', columns, p
     )
   }
 
-  const count = (filterId: string, groupId: string) => facetCount(filterId, groupId, matrixEntries, selected)
+  const count = (filterId: string, groupId: string) => facetCount(filterId, groupId, countedEntries, selected)
 
   // The ticked filters as removable chips. Three placements, one list:
   // - `top` sits in the panel's pinned head on desktop, under the title and its
@@ -899,7 +965,7 @@ export function FilterShell({ packedGrid, showSort, defaultSort = '', columns, p
   // - `results` sits above the grid, and is the only copy on screen on the
   //   sheet layouts, where the panel is shut behind the pill.
   const chipRow = (variant: 'top' | 'panel' | 'results') =>
-    activeChips.length === 0 ? null : (
+    activeChips.length === 0 && !rangeChip ? null : (
       <div className={`flt-chips flt-chips-${variant}`}>
         {variant !== 'results' && <p className="flt-chips-title">Selected</p>}
         {activeChips.map(({ groupId, groupName, filterId, label }) => (
@@ -915,11 +981,23 @@ export function FilterShell({ packedGrid, showSort, defaultSort = '', columns, p
             <span className="flt-chip-x" aria-hidden>×</span>
           </button>
         ))}
+        {rangeChip && (
+          <button
+            type="button"
+            className="flt-chip"
+            aria-label={`Remove filter ${rangeChip.groupName}: ${rangeChip.label}`}
+            onClick={() => setPriceRange(NO_PRICE_RANGE)}
+          >
+            {variant !== 'results' && <span className="flt-chip-group">{rangeChip.groupName}</span>}
+            <span className="flt-chip-label">{rangeChip.label}</span>
+            <span className="flt-chip-x" aria-hidden>×</span>
+          </button>
+        )}
         {/* The panel already carries a clear - in its head on desktop, in the
             sheet's footer on the smaller layouts - so only the grid's copy
             needs one of its own. */}
         {variant === 'results' && (
-          <button type="button" className="flt-clear" onClick={() => setSelected(new Map())}>Clear all</button>
+          <button type="button" className="flt-clear" onClick={clearAll}>Clear all</button>
         )}
       </div>
     )
@@ -939,7 +1017,7 @@ export function FilterShell({ packedGrid, showSort, defaultSort = '', columns, p
           <div className="flt-head">
             <h2 className="flt-title">Filter</h2>
             {activeCount > 0 && (
-              <button type="button" className="flt-clear" onClick={() => setSelected(new Map())}>
+              <button type="button" className="flt-clear" onClick={clearAll}>
                 Clear{activeCount > 1 ? ` (${activeCount})` : ''}
               </button>
             )}
@@ -991,7 +1069,7 @@ export function FilterShell({ packedGrid, showSort, defaultSort = '', columns, p
             {shownGroups.map((group) => {
               const closed = closedGroups.has(group.id)
               const bodyId = `flt-body-${group.id}`
-              const pickedInGroup = selected.get(group.id)?.size ?? 0
+              const pickedInGroup = group.controlType === 'RANGE' ? (rangeChip ? 1 : 0) : selected.get(group.id)?.size ?? 0
               const foldable = group.controlType === 'CHECKBOX' && group.filters.length > TICK_FOLD_LIMIT + TICK_FOLD_SLACK
               const unfolded = !foldable || unfoldedGroups.has(group.id)
               // A folded list still shows every ticked entry, wherever it sits
@@ -1017,7 +1095,15 @@ export function FilterShell({ packedGrid, showSort, defaultSort = '', columns, p
                     </button>
                   </legend>
                   <div className="flt-group-body" id={bodyId}>
-                    {group.controlType === 'DROPDOWN' ? (
+                    {group.controlType === 'RANGE' && priceScale ? (
+                      <PriceRangeControl
+                        groupName={group.name}
+                        scale={priceScale}
+                        value={priceRange}
+                        currencySymbol={currencySymbol}
+                        onChange={setPriceRange}
+                      />
+                    ) : group.controlType === 'DROPDOWN' ? (
                       <select
                         className="flt-select"
                         value={[...(selected.get(group.id) ?? [])][0] ?? ''}
@@ -1113,7 +1199,7 @@ export function FilterShell({ packedGrid, showSort, defaultSort = '', columns, p
             <button
               type="button"
               className="flt-foot-clear"
-              onClick={() => setSelected(new Map())}
+              onClick={clearAll}
               disabled={activeCount === 0}
             >
               Clear all
@@ -1132,7 +1218,7 @@ export function FilterShell({ packedGrid, showSort, defaultSort = '', columns, p
         {visibleCount === 0 && (
           <p className="flt-empty">
             Nothing matches those filters.{' '}
-            <button type="button" className="flt-clear" onClick={() => setSelected(new Map())}>Clear them</button> and try again.
+            <button type="button" className="flt-clear" onClick={clearAll}>Clear them</button> and try again.
           </p>
         )}
       </div>

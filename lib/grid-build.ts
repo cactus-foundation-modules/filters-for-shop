@@ -1,4 +1,5 @@
-import { priceInBand, type FltGroup } from '@/modules/filters-for-shop/lib/types'
+import { FLT_DELIVERY_LEAD_TIME, FLT_DELIVERY_SERVICE, leadTimeDays, priceInBand, type FltGroup, type FltRule } from '@/modules/filters-for-shop/lib/types'
+import type { FltDeliveryFacts } from '@/modules/filters-for-shop/lib/delivery'
 import type { FltCombo } from '@/modules/filters-for-shop/lib/db/matching'
 import type { FltPublicGroup, FltVariationIndex } from '@/modules/filters-for-shop/components/public/FilterShell'
 
@@ -29,6 +30,62 @@ export function applyPriceBands(
       if (!priceInBand(price, f.priceMin, f.priceMax)) continue
       const list = matrix.get(productId) ?? []
       list.push(f.id)
+      matrix.set(productId, list)
+    }
+  }
+}
+
+/** Does any group carry a DELIVERY rule? The grids only pay for delivery facts
+ *  when one does. */
+export function wantsDeliveryFacts(groups: FltGroup[]): boolean {
+  return groups.some((g) => g.kind === 'VALUES' && g.filters.some((f) => f.rules.some((r) => r.source === 'DELIVERY')))
+}
+
+/** Does one DELIVERY rule hold for a listing's delivery facts?
+ *
+ *  A service rule names a service label, matched exactly (case aside, so a
+ *  service renamed "Flat-pack" from "Flat-Pack" does not silently empty the
+ *  filter). A lead-time rule names a working-day count and holds when the
+ *  listing can arrive WITHIN it - ticking "6 working days" must not hide the
+ *  desk that can come in three. */
+export function deliveryRuleMatches(rule: Pick<FltRule, 'optionName' | 'valueLabel'>, facts: FltDeliveryFacts): boolean {
+  if (rule.optionName === FLT_DELIVERY_SERVICE) {
+    const wanted = rule.valueLabel.trim().toLowerCase()
+    for (const label of facts.services) if (label.toLowerCase() === wanted) return true
+    return false
+  }
+  if (rule.optionName === FLT_DELIVERY_LEAD_TIME) {
+    const days = leadTimeDays(rule.valueLabel)
+    const quickest = facts.leadDays[0]
+    return days !== null && quickest !== undefined && quickest <= days
+  }
+  return false
+}
+
+/** Add the DELIVERY-rule filters each listing matches to the matrix, in place.
+ *
+ *  Listing-wide, like a price band: the facts are rolled up from the listing's
+ *  variations (lib/delivery.ts), so these ids stay out of the per-variation
+ *  combos and a cross-group check never holds one variation to them. */
+export function applyDeliveryRules(
+  matrix: Map<string, string[]>,
+  groups: FltGroup[],
+  productIds: string[],
+  facts: Map<string, FltDeliveryFacts>,
+): void {
+  const deliveryFilters = groups
+    .filter((g) => g.kind === 'VALUES')
+    .flatMap((g) => g.filters)
+    .map((f) => ({ id: f.id, rules: f.rules.filter((r) => r.source === 'DELIVERY') }))
+    .filter((f) => f.rules.length > 0)
+  if (deliveryFilters.length === 0 || facts.size === 0) return
+  for (const productId of productIds) {
+    const own = facts.get(productId)
+    if (!own) continue
+    for (const f of deliveryFilters) {
+      if (!f.rules.some((rule) => deliveryRuleMatches(rule, own))) continue
+      const list = matrix.get(productId) ?? []
+      if (!list.includes(f.id)) list.push(f.id)
       matrix.set(productId, list)
     }
   }
@@ -91,19 +148,33 @@ export function offerGroups(
 ): FltPublicGroup[] {
   const matchedFilterIds = new Set([...matrix.values()].flat())
   return groups
-    .map((group) => ({
+    // A slider is only a price control, and only drawn for a PRICE group: a
+    // VALUES group saved as RANGE by hand falls back to ticks.
+    .map((group) => ({ group, slider: group.controlType === 'RANGE' && group.kind === 'PRICE' }))
+    .map(({ group, slider }) => ({
       id: group.id,
       name: group.name,
       slug: group.slug,
-      controlType: group.controlType,
+      controlType: slider ? 'RANGE' as const : group.controlType === 'RANGE' ? 'CHECKBOX' as const : group.controlType,
       filters: group.filters
         .filter((f) => (group.kind === 'PRICE' ? f.priceMin !== null || f.priceMax !== null : f.rules.length > 0))
-        .filter((f) => !hideEmptyFilters || matchedFilterIds.has(f.id) || preselectedIds.has(f.id))
+        // A slider keeps every band whether or not anything here falls in it:
+        // the bands are never drawn, only used to open the slider on a filter
+        // page's starting band, and the slider bounds itself from the prices.
+        .filter((f) => slider || !hideEmptyFilters || matchedFilterIds.has(f.id) || preselectedIds.has(f.id))
         // Collapsed to one url here rather than shipping all three: a picture
         // swatch is drawn as a 14px dot or a 56px tile in this panel, so the
         // tiny copy is the right file and the full-size photograph exists for
         // the 3D module, not for this.
-        .map((f) => ({ id: f.id, label: f.label, slug: f.slug, swatch: f.swatchTiny ?? f.swatchSmall ?? f.swatch })),
+        .map((f) => ({
+          id: f.id,
+          label: f.label,
+          slug: f.slug,
+          swatch: f.swatchTiny ?? f.swatchSmall ?? f.swatch,
+          ...(slider ? { band: [f.priceMin, f.priceMax] as [number | null, number | null] } : {}),
+        })),
     }))
-    .filter((group) => group.filters.length >= 2 || group.filters.some((f) => preselectedIds.has(f.id)))
+    // A slider is a choice in itself, bands or none; the shell hides it when
+    // the shelf's prices give it nowhere to slide.
+    .filter((group) => group.controlType === 'RANGE' || group.filters.length >= 2 || group.filters.some((f) => preselectedIds.has(f.id)))
 }

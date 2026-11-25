@@ -6,7 +6,7 @@ import { deleteGroup, ensureUniqueGroupSlug, getGroup, updateGroup } from '@/mod
 
 const PatchBody = z.object({
   name: z.string().min(1).max(80).optional(),
-  controlType: z.enum(['CHECKBOX', 'SWATCH', 'IMAGE', 'DROPDOWN']).optional(),
+  controlType: z.enum(['CHECKBOX', 'SWATCH', 'IMAGE', 'DROPDOWN', 'RANGE']).optional(),
 })
 
 export async function PATCH(request: Request, ctx: { params: Promise<Record<string, string>> }) {

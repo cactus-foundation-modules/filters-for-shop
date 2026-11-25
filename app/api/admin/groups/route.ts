@@ -13,7 +13,7 @@ export async function GET() {
 
 const PostBody = z.object({
   name: z.string().min(1).max(80),
-  controlType: z.enum(['CHECKBOX', 'SWATCH', 'IMAGE', 'DROPDOWN']).default('SWATCH'),
+  controlType: z.enum(['CHECKBOX', 'SWATCH', 'IMAGE', 'DROPDOWN', 'RANGE']).default('SWATCH'),
   // VALUES groups match option/attribute values through rules; PRICE groups
   // hold band filters instead. The kind is fixed at creation - flipping it
   // later would leave the other kind's data stranded.
